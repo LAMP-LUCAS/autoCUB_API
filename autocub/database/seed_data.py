@@ -279,34 +279,41 @@ PADROES_NBR12721 = [
 ]
 
 SINDUSCONS_CATALOGO = [
+    # Centro-Oeste
+    {"id": 8, "uf": "DF", "nome": "Sinduscon-DF", "regiao": "CENTRO-OESTE"},
     {"id": 10, "uf": "GO", "nome": "Sinduscon-GO", "regiao": "CENTRO-OESTE"},
-    {"id": 1, "uf": "MG", "nome": "Sinduscon-MG", "regiao": "SUDESTE"},
-    {"id": 2, "uf": "SP", "nome": "Sinduscon-SP", "regiao": "SUDESTE"},
-    {"id": 3, "uf": "RJ", "nome": "Sinduscon-Rio", "regiao": "SUDESTE"},
-    {"id": 4, "uf": "PR", "nome": "Sinduscon-PR", "regiao": "SUL"},
-    {"id": 5, "uf": "RS", "nome": "Sinduscon-RS", "regiao": "SUL"},
-    {"id": 6, "uf": "SC", "nome": "Sinduscon-Grande Florianópolis-SC", "regiao": "SUL"},
-    {"id": 7, "uf": "DF", "nome": "Sinduscon-DF", "regiao": "CENTRO-OESTE"},
-    {"id": 8, "uf": "BA", "nome": "Sinduscon-BA", "regiao": "NORDESTE"},
-    {"id": 9, "uf": "PE", "nome": "Sinduscon-PE", "regiao": "NORDESTE"},
-    {"id": 11, "uf": "CE", "nome": "Sinduscon-CE", "regiao": "NORDESTE"},
-    {"id": 12, "uf": "ES", "nome": "Sinduscon-ES", "regiao": "SUDESTE"},
     {"id": 13, "uf": "MT", "nome": "Sinduscon-MT", "regiao": "CENTRO-OESTE"},
-    {"id": 14, "uf": "MS", "nome": "Sinduscon-MS", "regiao": "CENTRO-OESTE"},
-    {"id": 15, "uf": "PA", "nome": "Sinduscon-PA", "regiao": "NORTE"},
-    {"id": 16, "uf": "AM", "nome": "Sinduscon-AM", "regiao": "NORTE"},
-    {"id": 17, "uf": "AL", "nome": "Sinduscon-AL", "regiao": "NORDESTE"},
-    {"id": 18, "uf": "PB", "nome": "Sinduscon-João Pessoa-PB", "regiao": "NORDESTE"},
-    {"id": 19, "uf": "RN", "nome": "Sinduscon-RN", "regiao": "NORDESTE"},
-    {"id": 20, "uf": "SE", "nome": "Sinduscon-SE", "regiao": "NORDESTE"},
-    {"id": 21, "uf": "MA", "nome": "Sinduscon-MA", "regiao": "NORDESTE"},
-    {"id": 22, "uf": "PI", "nome": "Sinduscon-PI", "regiao": "NORDESTE"},
-    {"id": 23, "uf": "RO", "nome": "Sinduscon-RO", "regiao": "NORTE"},
-    {"id": 24, "uf": "AC", "nome": "Sinduscon-AC", "regiao": "NORTE"},
-    {"id": 25, "uf": "TO", "nome": "Sinduscon-TO", "regiao": "NORTE"},
-    {"id": 26, "uf": "RR", "nome": "Sinduscon-RR", "regiao": "NORTE"},
-    {"id": 27, "uf": "AP", "nome": "Sinduscon-AP", "regiao": "NORTE"},
+    # Sudeste
+    {"id": 1, "uf": "MG", "nome": "Sinduscon-MG", "regiao": "SUDESTE"},
+    {"id": 32, "uf": "MG", "nome": "Sinduscon-Juiz de Fora", "regiao": "SUDESTE"},
+    {"id": 33, "uf": "MG", "nome": "Sinduscon-Vale do Piranga", "regiao": "SUDESTE"},
+    {"id": 34, "uf": "MG", "nome": "Sinduscon-Lagos", "regiao": "SUDESTE"},
+    {"id": 36, "uf": "MG", "nome": "Sinduscon Norte", "regiao": "SUDESTE"},
+    {"id": 39, "uf": "MG", "nome": "Sinduscon-GV", "regiao": "SUDESTE"},
+    {"id": 9, "uf": "ES", "nome": "Sinduscon-ES", "regiao": "SUDESTE"},
+    {"id": 20, "uf": "RJ", "nome": "Sinduscon-Rio", "regiao": "SUDESTE"},
+    # Sul
+    {"id": 18, "uf": "PR", "nome": "Sinduscon-PR", "regiao": "SUL"},
+    {"id": 19, "uf": "PR", "nome": "Sinduscon-Noroeste-PR", "regiao": "SUL"},
+    {"id": 38, "uf": "PR", "nome": "Sinduscon-Oeste-PR", "regiao": "SUL"},
+    {"id": 26, "uf": "SC", "nome": "Sinduscon Grande Florianópolis-SC", "regiao": "SUL"},
+    # Nordeste
+    {"id": 6, "uf": "BA", "nome": "Sinduscon-BA", "regiao": "NORDESTE"},
+    {"id": 7, "uf": "CE", "nome": "Sinduscon-CE", "regiao": "NORDESTE"},
+    {"id": 11, "uf": "MA", "nome": "Sinduscon-MA", "regiao": "NORDESTE"},
+    {"id": 15, "uf": "PB", "nome": "Sinduscon-João Pessoa", "regiao": "NORDESTE"},
+    {"id": 16, "uf": "PE", "nome": "Sinduscon-PE", "regiao": "NORDESTE"},
+    {"id": 17, "uf": "PI", "nome": "Sinduscon-Teresina", "regiao": "NORDESTE"},
+    {"id": 21, "uf": "RN", "nome": "Sinduscon-RN", "regiao": "NORDESTE"},
+    {"id": 22, "uf": "SE", "nome": "Sinduscon-SE", "regiao": "NORDESTE"},
+    # Norte
+    {"id": 4, "uf": "AC", "nome": "Sinduscon-AC", "regiao": "NORTE"},
+    {"id": 5, "uf": "AM", "nome": "Sinduscon-AM", "regiao": "NORTE"},
+    {"id": 14, "uf": "PA", "nome": "Sinduscon-PA", "regiao": "NORTE"},
+    {"id": 25, "uf": "RO", "nome": "Sinduscon-RO", "regiao": "NORTE"},
+    {"id": 30, "uf": "RR", "nome": "Sinduscon-RR", "regiao": "NORTE"},
 ]
+
 
 # Ponderações Oficiais do CUB Médio Brasil (CBIC / Quadro I e II)
 PESOS_CUB_BRASIL = [
