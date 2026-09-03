@@ -1,0 +1,150 @@
+version: '3.8'
+
+# ==============================================================================
+# AutoCUB — Docker Compose (Arquitetura Mimetizada do autoSINAPI_API)
+# Integração ecossistema Mundo AEC (SINAPI + CUB + futuro INCC)
+# ==============================================================================
+
+services:
+  db:
+    image: postgres:15-alpine
+    container_name: cub_db
+    hostname: db
+    env_file: .env
+    environment:
+      - POSTGRES_MULTIPLE_DATABASES=cub,kong
+      - POSTGRES_USER=${POSTGRES_USER:-autocub_user}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-autocub_pass}
+      - KONG_PG_USER=${KONG_PG_USER:-kong}
+      - KONG_PG_PASSWORD=${KONG_PG_PASSWORD:-kong_pass}
+    volumes:
+      - cub_postgres_data:/var/lib/postgresql/data
+      - ./docker/db/multiple-databases.sh:/docker-entrypoint-initdb.d/multiple-databases.sh
+    ports:
+      - "127.0.0.1:5433:5432"  # Porta 5433 no host para não conflitar com sinapi_db (5432)
+    restart: unless-stopped
+    networks:
+      - aec-net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-autocub_user} -d cub"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: cub_redis
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:6380:6379"  # Porta 6380 no host para evitar conflitos
+    networks:
+      - aec-net
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  api:
+    container_name: cub_api
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    env_file: .env
+    environment:
+      - POSTGRES_HOST=db
+      - POSTGRES_PORT=5432
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+    volumes:
+      - ./autocub_downloads:/app/autocub_downloads
+      - ./autocub:/app/autocub
+    ports:
+      - "8002:8002"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - aec-net
+
+  celery_worker:
+    container_name: cub_celery_worker
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    command: celery -A autocub.tasks.celery_app worker --loglevel=info --concurrency=2
+    env_file: .env
+    environment:
+      - POSTGRES_HOST=db
+      - POSTGRES_PORT=5432
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+    volumes:
+      - ./autocub_downloads:/app/autocub_downloads
+      - ./autocub:/app/autocub
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - aec-net
+
+  # Gateway Kong (Opcional para ambiente com API Key e Rate Limiting)
+  kong-migrations:
+    image: kong:3.3-alpine
+    container_name: cub_kong_migrations
+    command: kong migrations bootstrap
+    environment:
+      - KONG_DATABASE=postgres
+      - KONG_PG_HOST=db
+      - KONG_PG_USER=${KONG_PG_USER:-kong}
+      - KONG_PG_PASSWORD=${KONG_PG_PASSWORD:-kong_pass}
+      - KONG_PG_DATABASE=kong
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - aec-net
+    restart: on-failure
+
+  kong:
+    image: kong:3.3-alpine
+    container_name: cub_kong
+    env_file: .env
+    environment:
+      - KONG_DATABASE=postgres
+      - KONG_PG_HOST=db
+      - KONG_PG_USER=${KONG_PG_USER:-kong}
+      - KONG_PG_PASSWORD=${KONG_PG_PASSWORD:-kong_pass}
+      - KONG_PG_DATABASE=kong
+      - KONG_PROXY_ACCESS_LOG=/dev/stdout
+      - KONG_ADMIN_ACCESS_LOG=/dev/stdout
+      - KONG_PROXY_ERROR_LOG=/dev/stderr
+      - KONG_ADMIN_ERROR_LOG=/dev/stderr
+      - KONG_ADMIN_LISTEN=0.0.0.0:8001, 0.0.0.0:8444 ssl
+    depends_on:
+      kong-migrations:
+        condition: service_completed_successfully
+      db:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+      - "8443:8443"
+      - "127.0.0.1:8001:8001"
+      - "127.0.0.1:8444:8444"
+    restart: unless-stopped
+    networks:
+      - aec-net
+
+volumes:
+  cub_postgres_data:
+
+networks:
+  aec-net:
+    name: aec-net
+    driver: bridge
