@@ -109,14 +109,18 @@ O autoCUB estrutura rigorosamente os 19 projetos da norma:
 
 | Método | Rota | Descrição |
 |---|---|---|
-| `GET` | `/v1/cub/estados` | Lista os Sinduscons e UFs ativas |
-| `GET` | `/v1/padroes` | Catálogo completo dos 19 projetos-padrão da NBR 12.721 |
+| `GET` | `/v1/sinduscons` | Lista os Sinduscons e UFs ativas na base |
+| `GET` | `/v1/padroes` | Catálogo completo dos 19 projetos-padrão da NBR 12.721:2006 |
+| `GET` | `/v1/cub/latest` | Cotações mais recentes com **origem completa** (UF, Sinduscon, Região) |
 | `GET` | `/v1/cub/{uf}` | Cotações de todos os padrões para o estado e período especificado |
-| `GET` | `/v1/cub/{uf}/historico/{codigo}` | Série temporal histórica de custos e variações percentuais |
+| `GET` | `/v1/cub/{uf}/panorama` | **Dashboard Analítico**: Estrutura hierárquica por categoria com métricas e médias pré-calculadas |
+| `GET` | `/v1/cub/{uf}/impacto-desoneracao` | **Inteligência Tributária**: Cruzamento automático e economia por m² da desoneração da folha |
+| `GET` | `/v1/cub/{uf}/historico/{codigo}` | Série temporal histórica com inflação setorial acumulada no período |
 | `GET` | `/v1/cub/comparativo` | Compara o custo do m² entre múltiplos estados (ex: `ufs=GO,MG,PR`) |
-| `GET` | `/v1/cub/latest` | Cotações mais recentes disponíveis de cada região |
+| `GET` | `/v1/cub/ranking` | **Ranking Nacional**: Classifica estados por custo com desvio percentual da média |
 | `POST`| `/v1/admin/etl/trigger` | Disparo assíncrono do pipeline ETL via Celery |
 | `GET` | `/v1/admin/etl/logs` | Logs de telemetria e auditoria das execuções |
+
 
 ---
 
