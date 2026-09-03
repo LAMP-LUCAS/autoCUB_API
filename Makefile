@@ -48,16 +48,17 @@ status:
 	docker compose ps
 
 test:
-	pytest -v
+	python -m pytest -v
 
 test-unit:
-	pytest -v -m unit
+	python -m pytest -v -m unit
 
 test-integration:
-	pytest -v -m integration
+	python -m pytest -v -m integration
 
 test-e2e:
-	pytest -v -m e2e
+	python -m pytest -v -m e2e
 
 test-cov:
-	pytest -v --cov=autocub --cov-report=term-missing
+	python -m pytest -v --cov=autocub --cov-report=term-missing
+
