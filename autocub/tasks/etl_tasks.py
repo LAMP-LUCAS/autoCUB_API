@@ -165,24 +165,30 @@ def run_etl_pipeline(
     }
 
 
-def _dummy_task_wrapper(func):
-    func.delay = lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("Celery não instalado neste ambiente."))
-    return func
+def populate_cub_task(
+    ano_inicio: int,
+    ano_fim: int,
+    ufs: Optional[List[str]] = None,
+    desoneracoes: Optional[List[str]] = None,
+    force_download: bool = False
+):
+    """Tarefa para carga progressiva de dados do CUB."""
+    logger.info(f"Iniciando populate_cub_task: {ano_inicio} a {ano_fim}, ufs={ufs}")
+    return run_etl_pipeline(
+        ano_inicio=ano_inicio,
+        ano_fim=ano_fim,
+        ufs=ufs,
+        desoneracoes=desoneracoes,
+        force_download=force_download
+    )
 
 if celery_app:
-    populate_cub_task = celery_app.task(name="autocub.populate_cub_task", bind=True)(
-        lambda self, ano_inicio, ano_fim, ufs=None, desoneracoes=None, force_download=False: run_etl_pipeline(
-            ano_inicio=ano_inicio,
-            ano_fim=ano_fim,
-            ufs=ufs,
-            desoneracoes=desoneracoes,
-            force_download=force_download
-        )
-    )
+    populate_cub_task = celery_app.task(name="autocub.populate_cub_task")(populate_cub_task)
 else:
-    @_dummy_task_wrapper
-    def populate_cub_task(*args, **kwargs):
-        return run_etl_pipeline(*args, **kwargs)
+    populate_cub_task.delay = lambda *args, **kwargs: (_ for _ in ()).throw(
+        RuntimeError("Celery não instalado neste ambiente.")
+    )
+
 
 
 

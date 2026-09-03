@@ -24,10 +24,11 @@ services:
     networks:
       - aec-net
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-autocub_user} -d cub"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-autocub_user} -d cub && pg_isready -U ${KONG_PG_USER:-kong} -d kong"]
       interval: 10s
       timeout: 5s
       retries: 5
+
 
   redis:
     image: redis:7-alpine
@@ -108,7 +109,7 @@ services:
         condition: service_healthy
     networks:
       - aec-net
-    restart: on-failure
+    restart: on-failure:5
 
   kong:
     image: kong:3.4

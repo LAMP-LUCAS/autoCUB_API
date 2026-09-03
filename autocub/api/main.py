@@ -58,12 +58,14 @@ def health_check():
     Health check para balanceadores de carga, Kubernetes e Kong Gateway.
     Verifica a conectividade ativa com a infraestrutura.
     """
+    from sqlalchemy import text
     db_status = "healthy"
     try:
         with engine.connect() as conn:
-            conn.execute("SELECT 1")
+            conn.execute(text("SELECT 1"))
     except Exception as e:
         db_status = f"unhealthy: {str(e)}"
+
 
     return {
         "status": "online",
