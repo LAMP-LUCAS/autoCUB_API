@@ -35,18 +35,29 @@ router = APIRouter(prefix="/cub", tags=["CUB / Custo Unitário Básico"])
 # 1. CUB BRASIL PONDERADO OFICIAL (CBIC / Quadro I e II)
 # ==============================================================================
 
-@router.get("/br", response_model=CubBrasilResponse, summary="CUB Médio Brasil Oficial ponderado (21 capitais)")
+@router.get(
+    "/br",
+    response_model=CubBrasilResponse,
+    summary="CUB Médio Brasil Oficial ponderado (21 capitais)",
+    description=(
+        "**Dor que resolve:** O Brasil não possui um custo único e direto da construção civil; a CBIC calcula "
+        "o indicador oficial consolidado através da média ponderada representativa de 21 capitais (Quadros I e II). "
+        "Fazer esse cálculo manualmente exige consultar e cruzar 21 planilhas estaduais com a tabela de pesos econômicos relativos.\n\n"
+        "**Como funciona:** Aplica a fórmula oficial da CBIC: `CUB Brasil = ∑(Pi × Xi) / ∑Pi`, onde `Pi` é o peso econômico "
+        "do Estado e `Xi` é a cotação do projeto-padrão representativo daquela praça.\n\n"
+        "**Retorno:** CUB Médio Brasil oficial, soma dos pesos considerados, decomposição média por macrorregião geográfica "
+        "e participação percentual efetiva de cada estado no índice nacional."
+    )
+)
 @cache_response(ttl=86400, prefix="cub:br")
 def get_cub_brasil(
-    ano: Optional[int] = Query(None, description="Ano"),
-    mes: Optional[int] = Query(None, description="Mês"),
-    desoneracao: str = Query("SEM_DESONERACAO", description="'SEM_DESONERACAO' ou 'COM_DESONERACAO'"),
+    ano: Optional[int] = Query(None, description="Ano de referência (ex: 2026). Se omitido, utiliza o mês mais recente.", examples=[2026]),
+    mes: Optional[int] = Query(None, description="Mês de referência (1 a 12). Se omitido, utiliza o mês mais recente.", examples=[8]),
+    desoneracao: str = Query("SEM_DESONERACAO", description="'SEM_DESONERACAO' ou 'COM_DESONERACAO'", examples=["SEM_DESONERACAO"]),
     db: Session = Depends(get_db)
 ):
-    """
-    Calcula o CUB Médio Brasil oficial por média ponderada das 21 capitais (Fórmula CBIC):
-    CUB Brasil = ∑(Pi * Xi) / ∑Pi, onde Pi é o peso do Estado (Quadro I) e Xi é a cotação do projeto representativo.
-    """
+    """Calcula o CUB Médio Brasil oficial por média ponderada das 21 capitais (Fórmula CBIC)."""
+
     deson_slug = "COM_DESONERACAO" if "com" in desoneracao.lower() else "SEM_DESONERACAO"
 
     if ano and mes:
@@ -150,13 +161,24 @@ def get_cub_brasil(
 # 2. COTAÇÕES RECENTES COM ORIGEM COMPLETA
 # ==============================================================================
 
-@router.get("/latest", response_model=List[CubCotacaoResponse], summary="Cotações mais recentes com UF, Sinduscon e Região")
+@router.get(
+    "/latest",
+    response_model=List[CubCotacaoResponse],
+    summary="Últimas cotações consolidadas com identificação de UF, Sinduscon e Região",
+    description=(
+        "**Dor que resolve:** Muitas APIs entregam valores soltos de CUB sem indicar claramente qual sindicato "
+        "ou estado gerou aquele número, gerando ambiguidade e riscos contratuais. Este endpoint retorna as cotações "
+        "mais recentes vigentes, garantindo rastreabilidade territorial completa (UF, ID e Nome do Sinduscon, Macrorregião).\n\n"
+        "**Filtros:** Pode listar o panorama de todos os estados simultaneamente ou filtrar por uma UF específica."
+    )
+)
 def get_latest_cub(
-    uf: Optional[str] = Query(None, description="Filtrar por UF (ex: GO). Se omitido, lista todas."),
-    desoneracao: str = Query("SEM_DESONERACAO", description="'SEM_DESONERACAO' ou 'COM_DESONERACAO'"),
+    uf: Optional[str] = Query(None, description="Filtrar por UF (ex: GO, MG, RJ). Se omitido, lista todas as UFs ativas.", examples=["GO"]),
+    desoneracao: str = Query("SEM_DESONERACAO", description="'SEM_DESONERACAO' ou 'COM_DESONERACAO'", examples=["SEM_DESONERACAO"]),
     db: Session = Depends(get_db)
 ):
     """Retorna cotações recentes contendo explicitamente UF, Sinduscon e Região de origem."""
+
     deson_slug = "COM_DESONERACAO" if "com" in desoneracao.lower() else "SEM_DESONERACAO"
 
     subq_filter = (CubMensal.desoneracao == deson_slug)
@@ -213,21 +235,30 @@ def get_latest_cub(
 # 3. PAINEL ANALÍTICO CONCISO /dash (com cache em memória Redis)
 # ==============================================================================
 
-@router.get("/{uf}/dash", response_model=PanoramaResponse, summary="Painel analítico e estrutura agrupada NBR (cacheado)")
+@router.get(
+    "/{uf}/dash",
+    response_model=PanoramaResponse,
+    summary="Painel analítico consolidado e agrupamentos NBR por categoria (cacheado)",
+    description=(
+        "**Dor que resolve:** Evita a sobrecarga de consultar dezenas de projetos individualmente para compreender "
+        "o cenário de custos de um estado. Em uma única chamada ultrarrápida (servida em < 1ms via cache Redis), "
+        "entrega médias por tipologia (Residencial, Comercial, Especial), os projetos de maior e menor custo e a "
+        "árvore hierárquica por padrão de acabamento (Baixo, Normal, Alto).\n\n"
+        "**Rota curta byte-saving:** Substitui a rota antiga mais verbosa `/panorama`."
+    )
+)
 @router.get("/{uf}/panorama", response_model=PanoramaResponse, include_in_schema=False)
 @cache_response(ttl=86400, prefix="cub:dash")
 def get_cub_dash(
     uf: str,
-    ano: Optional[int] = Query(None, description="Ano"),
-    mes: Optional[int] = Query(None, description="Mês"),
-    desoneracao: str = Query("SEM_DESONERACAO", description="'SEM_DESONERACAO' ou 'COM_DESONERACAO'"),
-    sinduscon_id: Optional[int] = Query(None, description="ID do Sinduscon"),
+    ano: Optional[int] = Query(None, description="Ano de referência (ex: 2026)", examples=[2026]),
+    mes: Optional[int] = Query(None, description="Mês de referência (1 a 12)", examples=[8]),
+    desoneracao: str = Query("SEM_DESONERACAO", description="'SEM_DESONERACAO' ou 'COM_DESONERACAO'", examples=["SEM_DESONERACAO"]),
+    sinduscon_id: Optional[int] = Query(None, description="ID do Sinduscon específico (opcional para UFs multi-sindicatos como MG e PR)"),
     db: Session = Depends(get_db)
 ):
-    """
-    Retorna métricas consolidadas pré-calculadas e agrupamentos NBR da UF.
-    Cacheado no Redis com resposta em < 1ms após o primeiro cálculo.
-    """
+    """Retorna métricas consolidadas pré-calculadas e agrupamentos NBR da UF."""
+
     uf_upper = uf.upper()
     deson_slug = "COM_DESONERACAO" if "com" in desoneracao.lower() else "SEM_DESONERACAO"
 
@@ -382,17 +413,29 @@ def get_cub_dash(
 # 4. IMPACTO DA DESONERAÇÃO CONCISO /deson (com cache Redis)
 # ==============================================================================
 
-@router.get("/{uf}/deson", response_model=ImpactoDesoneracaoResponse, summary="Economia por m² da desoneração da folha (cacheado)")
+@router.get(
+    "/{uf}/deson",
+    response_model=ImpactoDesoneracaoResponse,
+    summary="Impacto tributário da desoneração da folha CPRB (economia por m²)",
+    description=(
+        "**Dor que resolve:** Decisões de planejamento tributário e orçamentos de licitação pública exigem saber "
+        "com precisão matemática qual é a vantagem de optar pela desoneração da folha de pagamento (CPRB / Lei 12.546/2011). "
+        "Este endpoint cruza as cotações COM e SEM desoneração para cada projeto-padrão da UF.\n\n"
+        "**Retorno:** Economia absoluta em reais por metro quadrado (`R$/m²`), percentual de economia (`%`) "
+        "e projeto de maior benefício fiscal da praça."
+    )
+)
 @router.get("/{uf}/impacto-desoneracao", response_model=ImpactoDesoneracaoResponse, include_in_schema=False)
 @cache_response(ttl=86400, prefix="cub:deson")
 def get_impacto_desoneracao(
     uf: str,
-    ano: Optional[int] = Query(None, description="Ano"),
-    mes: Optional[int] = Query(None, description="Mês"),
-    sinduscon_id: Optional[int] = Query(None, description="ID do Sinduscon"),
+    ano: Optional[int] = Query(None, description="Ano de referência (ex: 2026)", examples=[2026]),
+    mes: Optional[int] = Query(None, description="Mês de referência (1 a 12)", examples=[8]),
+    sinduscon_id: Optional[int] = Query(None, description="ID do Sinduscon específico"),
     db: Session = Depends(get_db)
 ):
     """Cruzamento pré-calculado das séries COM e SEM desoneração."""
+
     uf_upper = uf.upper()
     sind = db.query(Sinduscon).filter(Sinduscon.uf == uf_upper, Sinduscon.ativo == True).first()
     if not sind:
@@ -478,17 +521,27 @@ def get_impacto_desoneracao(
 # 5. RANKING NACIONAL CONCISO /rank (com cache Redis)
 # ==============================================================================
 
-@router.get("/rank", response_model=RankingResponse, summary="Ranking nacional por projeto-padrão (cacheado)")
+@router.get(
+    "/rank",
+    response_model=RankingResponse,
+    summary="Ranking nacional de estados por projeto-padrão (cacheado)",
+    description=(
+        "**Dor que resolve:** Benchmarking de competitividade e custo territorial. Permite ranquear rapidamente "
+        "todos os estados brasileiros do mais caro ao mais barato para um determinado padrão construtivo (ex: R8-N, R1-N, GI), "
+        "calculando automaticamente a média nacional e o desvio percentual (`desvio_media_pct`) de cada praça."
+    )
+)
 @router.get("/ranking", response_model=RankingResponse, include_in_schema=False)
 @cache_response(ttl=86400, prefix="cub:rank")
 def get_cub_rank(
-    codigo_padrao: str = Query("R1-N", description="Código do padrão (ex: R1-N, R8-N, GI)"),
-    ano: Optional[int] = Query(None, description="Ano"),
-    mes: Optional[int] = Query(None, description="Mês"),
-    desoneracao: str = Query("SEM_DESONERACAO", description="'SEM_DESONERACAO' ou 'COM_DESONERACAO'"),
+    codigo_padrao: str = Query("R1-N", description="Código do padrão normativo (ex: R1-N, R8-N, GI)", examples=["R8-N"]),
+    ano: Optional[int] = Query(None, description="Ano de referência (ex: 2026)", examples=[2026]),
+    mes: Optional[int] = Query(None, description="Mês de referência (1 a 12)", examples=[8]),
+    desoneracao: str = Query("SEM_DESONERACAO", description="'SEM_DESONERACAO' ou 'COM_DESONERACAO'", examples=["SEM_DESONERACAO"]),
     db: Session = Depends(get_db)
 ):
     """Classifica estados pelo valor do m² e calcula desvio da média nacional."""
+
     deson_slug = "COM_DESONERACAO" if "com" in desoneracao.lower() else "SEM_DESONERACAO"
     codigo_padrao_norm = codigo_padrao.upper()
 
@@ -554,19 +607,30 @@ def get_cub_rank(
 # 6. SÉRIE HISTÓRICA CONCISA /hist/{cod} (com cache Redis)
 # ==============================================================================
 
-@router.get("/{uf}/hist/{codigo_padrao}", response_model=CubHistoricoResponse, summary="Série histórica e inflação acumulada (cacheado)")
+@router.get(
+    "/{uf}/hist/{codigo_padrao}",
+    response_model=CubHistoricoResponse,
+    summary="Série histórica e inflação setorial acumulada (cacheado)",
+    description=(
+        "**Dor que resolve:** Reajustes contratuais de obras, previsões financeiras e teses jurídicas "
+        "exigem calcular a variação acumulada do CUB ao longo de meses ou anos. Este endpoint entrega "
+        "a série cronológica completa e calcula automaticamente a **inflação acumulada total** no período (`variacao_acumulada_pct`).\n\n"
+        "**Rota curta byte-saving:** Substitui a rota mais longa `/historico`."
+    )
+)
 @router.get("/{uf}/historico/{codigo_padrao}", response_model=CubHistoricoResponse, include_in_schema=False)
 @cache_response(ttl=86400, prefix="cub:hist")
 def get_historico_padrao(
     uf: str,
     codigo_padrao: str,
-    ano_inicio: Optional[int] = Query(None, description="Ano inicial"),
-    ano_fim: Optional[int] = Query(None, description="Ano final"),
-    desoneracao: str = Query("SEM_DESONERACAO", description="'SEM_DESONERACAO' ou 'COM_DESONERACAO'"),
-    sinduscon_id: Optional[int] = Query(None, description="ID do Sinduscon"),
+    ano_inicio: Optional[int] = Query(None, description="Ano inicial do período (ex: 2024)", examples=[2024]),
+    ano_fim: Optional[int] = Query(None, description="Ano final do período (ex: 2026)", examples=[2026]),
+    desoneracao: str = Query("SEM_DESONERACAO", description="'SEM_DESONERACAO' ou 'COM_DESONERACAO'", examples=["SEM_DESONERACAO"]),
+    sinduscon_id: Optional[int] = Query(None, description="ID do Sinduscon específico"),
     db: Session = Depends(get_db)
 ):
     """Série temporal com variação acumulada no período e métricas consolidadas."""
+
     uf_upper = uf.upper()
     codigo_padrao_norm = codigo_padrao.upper()
     deson_slug = "COM_DESONERACAO" if "com" in desoneracao.lower() else "SEM_DESONERACAO"
@@ -642,14 +706,24 @@ def get_historico_padrao(
 # 7. COMPARATIVO CONCISO /comp E CONSULTA POR UF
 # ==============================================================================
 
-@router.get("/comp", response_model=ComparativoResponse, summary="Comparativo regional de custos entre estados")
+@router.get(
+    "/comp",
+    response_model=ComparativoResponse,
+    summary="Comparativo regional de custos entre múltiplos estados",
+    description=(
+        "**Dor que resolve:** Incorporadoras em expansão geográfica ou orçamentistas corporativos "
+        "precisam avaliar custos relativos entre praças diferentes para tomada de decisão de investimento. "
+        "Este endpoint compara o custo do m² para o mesmo projeto-padrão entre múltiplos estados informados "
+        "(ex: `ufs=GO,MG,PR,SP`) em uma única consulta, calculando a média do grupo e o desvio relativo de cada estado."
+    )
+)
 @router.get("/comparativo", response_model=ComparativoResponse, include_in_schema=False)
 def get_comparativo_regional(
-    ufs: str = Query(..., description="Lista de UFs separadas por vírgula (ex: GO,MG,PR,RJ)"),
-    codigo_padrao: str = Query("R1-N", description="Código NBR (ex: R1-N, R8-N, CSL-8-N)"),
-    ano: Optional[int] = Query(None, description="Ano"),
-    mes: Optional[int] = Query(None, description="Mês"),
-    desoneracao: str = Query("SEM_DESONERACAO", description="'SEM_DESONERACAO' ou 'COM_DESONERACAO'"),
+    ufs: str = Query(..., description="Lista de UFs separadas por vírgula (ex: GO,MG,PR,RJ)", examples=["GO,MG,PR,SP"]),
+    codigo_padrao: str = Query("R1-N", description="Código do projeto-padrão (ex: R1-N, R8-N, CSL-8-N)", examples=["R8-N"]),
+    ano: Optional[int] = Query(None, description="Ano de referência (ex: 2026)", examples=[2026]),
+    mes: Optional[int] = Query(None, description="Mês de referência (1 a 12)", examples=[8]),
+    desoneracao: str = Query("SEM_DESONERACAO", description="'SEM_DESONERACAO' ou 'COM_DESONERACAO'", examples=["SEM_DESONERACAO"]),
     db: Session = Depends(get_db)
 ):
     """Compara o custo do m² entre múltiplos estados no mesmo período."""
@@ -684,20 +758,31 @@ def get_comparativo_regional(
         data_ref = latest_date
         query = query.filter(CubMensal.data_referencia == data_ref)
 
-    results = query.all()
-    items = [
-        ComparativoItem(
-            uf=sind.uf,
-            sinduscon_nome=sind.nome,
-            regiao=sind.regiao,
-            valor_m2=cub.valor_m2,
-            variacao_mensal_pct=cub.variacao_mensal_pct
+    results = query.order_by(CubMensal.valor_m2.desc()).all()
+    if not results:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Nenhum dado encontrado para o padrão {codigo_padrao_norm} nas UFs: {lista_ufs}."
         )
-        for cub, sind in results
-    ]
 
-    valores = [i.valor_m2 for i in items]
+    valores = [c.valor_m2 for c, s in results]
     media_grp = round(sum(valores) / len(valores), 2) if valores else Decimal("0.00")
+
+    items = []
+    for cub, sind in results:
+        diff = cub.valor_m2 - media_grp
+        diff_pct = round((diff / media_grp) * 100, 2) if media_grp > 0 else Decimal("0.00")
+        items.append(
+            ComparativoItem(
+                uf=sind.uf,
+                sinduscon_nome=sind.nome,
+                regiao=sind.regiao,
+                valor_m2=cub.valor_m2,
+                diferenca_media_reais=diff,
+                diferenca_media_pct=diff_pct,
+                variacao_mensal_pct=cub.variacao_mensal_pct
+            )
+        )
 
     return ComparativoResponse(
         codigo_padrao=codigo_padrao_norm,
@@ -710,13 +795,23 @@ def get_comparativo_regional(
     )
 
 
-@router.get("/{uf}", response_model=List[CubEstadoPeriodoResponse], summary="Consulta cotações do CUB por estado")
+@router.get(
+    "/{uf}",
+    response_model=List[CubEstadoPeriodoResponse],
+    summary="Consulta cotações do CUB por estado (com filtros de período e regime)",
+    description=(
+        "**Dor que resolve:** Ponto de entrada padrão para consultas diretas aos 19 projetos da NBR 12.721:2006 "
+        "de uma determinada unidade federativa. Permite filtrar por ano, mês, regime de desoneração e sindicato "
+        "(para UFs com múltiplos sindicatos cadastrados, como MG e PR).\n\n"
+        "**Retorno:** Lista de cotações contendo valores de m², variações mensais e especificações de acabamento."
+    )
+)
 def get_cub_by_uf(
     uf: str,
-    ano: Optional[int] = Query(None, description="Ano"),
-    mes: Optional[int] = Query(None, description="Mês"),
-    desoneracao: str = Query("SEM_DESONERACAO", description="'SEM_DESONERACAO' ou 'COM_DESONERACAO'"),
-    sinduscon_id: Optional[int] = Query(None, description="ID do Sinduscon"),
+    ano: Optional[int] = Query(None, description="Ano de referência (ex: 2026)", examples=[2026]),
+    mes: Optional[int] = Query(None, description="Mês de referência (1 a 12)", examples=[8]),
+    desoneracao: str = Query("SEM_DESONERACAO", description="'SEM_DESONERACAO' ou 'COM_DESONERACAO'", examples=["SEM_DESONERACAO"]),
+    sinduscon_id: Optional[int] = Query(None, description="ID do Sinduscon específico"),
     db: Session = Depends(get_db)
 ):
     """Retorna as cotações de todos os projetos para uma determinada UF no mês/ano indicado."""

@@ -24,10 +24,55 @@ async def lifespan(app: FastAPI):
     logger.info("Encerrando AutoCUB API...")
 
 
+TAGS_METADATA = [
+    {
+        "name": "CUB / Custo Unitário Básico",
+        "description": (
+            "**Consultas, Cotações e Indicadores:** Endpoints para obtenção de custos do m² residencial, comercial e especial, "
+            "CUB Médio Brasil oficial ponderado (21 capitais), painel analítico consolidado (`/dash`), "
+            "estudos tributários da CPRB (`/deson`), rankings nacionais (`/rank`) e séries históricas (`/hist`)."
+        ),
+    },
+    {
+        "name": "Calculadoras Paramétricas Normativas",
+        "description": (
+            "**Cálculos de Engenharia (NBR 12.721:2006):** Conversão rigorosa de áreas físicas reais em "
+            "Área Equivalente de Construção (Quadro II) e geração automatizada de orçamentos estimativos preliminares."
+        ),
+    },
+    {
+        "name": "Base de Conhecimento Perene & Normas",
+        "description": (
+            "**Inteligência Normativa e Jurídica:** Catálogo dos 29 insumos básicos, itens expressamente não inclusos no CUB "
+            "(fundações, elevadores, BDI), fundamentos da Lei Federal 4.591/1964 e súmulas do STJ."
+        ),
+    },
+    {
+        "name": "Metadados & Padrões Construtivos",
+        "description": (
+            "**Padrões da Construção e Sindicatos:** Especificações arquitetônicas dos 19 projetos-padrão normatizados "
+            "(áreas, dormitórios, vagas) e catálogo dos 28 Sinduscons com numeração canônica oficial da CBIC."
+        ),
+    },
+    {
+        "name": "Administração & ETL",
+        "description": (
+            "**Operações de Coleta e Auditoria:** Disparo assíncrono do pipeline ETL ético e consulta aos "
+            "logs forenses de auditoria de execuções com detalhamento de durações, erros e status de cada relatório."
+        ),
+    },
+    {
+        "name": "Health",
+        "description": "Monitoramento de integridade, saúde da conexão com o banco PostgreSQL e status do serviço.",
+    },
+]
+
+
 app = FastAPI(
     title=settings.API_TITLE,
     version=settings.API_VERSION,
     description=settings.API_DESCRIPTION,
+    openapi_tags=TAGS_METADATA,
     docs_url="/docs",
     redoc_url="/redoc",
     openapi_url="/openapi.json",

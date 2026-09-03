@@ -70,3 +70,33 @@ def test_padrao_has_architectural_fields(api_client):
     assert float(data["area_equivalente"]) == 99.47
     assert data["dormitorios"] == 3
     assert data["vagas_garagem"] == 1
+
+
+@pytest.mark.integration
+def test_calc_fatores_endpoint(api_client):
+    resp = api_client.get("/v1/calc/fatores")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "fatores" in data
+    assert len(data["fatores"]) >= 6
+    assert any("Garagem" in f["tipo_ambiente"] for f in data["fatores"])
+
+
+@pytest.mark.integration
+def test_calc_area_com_cub_m2_estimativa_custo(api_client):
+    payload = {
+        "cub_m2": 2000.0,
+        "itens": [
+            {"ambiente": "Apartamento Privativo", "area_real_m2": 100.0, "fator_ponderacao": 1.0},
+            {"ambiente": "Garagem Coberta", "area_real_m2": 20.0, "fator_ponderacao": 0.65}
+        ]
+    }
+    resp = api_client.post("/v1/calc/area", json=payload)
+    assert resp.status_code == 200
+    data = resp.json()
+    # area equiv: 100 + 13 = 113 m²
+    assert float(data["area_equivalente_total_m2"]) == 113.0
+    # custo total: 113 * 2000 = 226000.0
+    assert float(data["custo_estimado_total"]) == 226000.0
+    assert float(data["cub_m2_aplicado"]) == 2000.0
+

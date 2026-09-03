@@ -240,21 +240,87 @@ class CubBrasilResponse(BaseModel):
 
 
 class AreaItemInput(BaseModel):
-    ambiente: str  # ex: "Apartamento Tipo", "Garagem Coberta", "Varanda"
-    area_real_m2: Decimal
-    fator_ponderacao: Optional[Decimal] = None  # Se omitido, usa sugestão NBR
+    ambiente: str = Field(
+        ...,
+        description="Nome ou tipo do ambiente (ex: 'Apartamento Privativo', 'Garagem Coberta', 'Varanda Gourmet', 'Pilotis').",
+        examples=["Apartamento Privativo"]
+    )
+    area_real_m2: Decimal = Field(
+        ...,
+        gt=0,
+        description="Área real física construída do ambiente em metros quadrados (m²).",
+        examples=[Decimal("120.00")]
+    )
+    fator_ponderacao: Optional[Decimal] = Field(
+        None,
+        ge=0,
+        le=2.0,
+        description="Fator de equivalência customizado. Se omitido (null), a API resolve e aplica automaticamente o fator normativo canônico da NBR 12.721:2006 (Quadro II).",
+        examples=[Decimal("1.00")]
+    )
+
+
+class CalculoAreaRequest(BaseModel):
+    itens: List[AreaItemInput] = Field(
+        ...,
+        min_length=1,
+        description="Lista de ambientes da edificação com suas áreas reais para cálculo da área equivalente ponderada.",
+        examples=[
+            [
+                {"ambiente": "Apartamento Privativo", "area_real_m2": 100.0, "fator_ponderacao": 1.0},
+                {"ambiente": "Garagem Coberta (Subsolo)", "area_real_m2": 25.0, "fator_ponderacao": 0.65},
+                {"ambiente": "Varanda Gourmet", "area_real_m2": 10.0, "fator_ponderacao": 0.50}
+            ]
+        ]
+    )
+    cub_m2: Optional[Decimal] = Field(
+        None,
+        gt=0,
+        description="Valor do CUB/m² (R$) para estimativa de custo global. Se informado, calcula o valor orçado (Área Equivalente × CUB).",
+        examples=[Decimal("2623.20")]
+    )
+    uf: Optional[str] = Field(
+        None,
+        description="Sigla da UF (ex: GO, MG, RJ). Se informado junto com 'codigo_padrao', busca o CUB mais recente do banco.",
+        examples=["GO"]
+    )
+    codigo_padrao: Optional[str] = Field(
+        None,
+        description="Código do projeto-padrão (ex: R1-N, R8-N, PP-4-N) para consulta automática do CUB.",
+        examples=["R8-N"]
+    )
 
 
 class AreaItemOutput(BaseModel):
-    ambiente: str
-    area_real_m2: Decimal
-    fator_utilizado: Decimal
-    area_equivalente_m2: Decimal
+    ambiente: str = Field(..., description="Nome ou tipo do ambiente informado.")
+    area_real_m2: Decimal = Field(..., description="Área real física em m².")
+    fator_utilizado: Decimal = Field(..., description="Fator de ponderação aplicado segundo a NBR 12.721:2006.")
+    area_equivalente_m2: Decimal = Field(..., description="Área equivalente resultante (Área Real × Fator).")
 
 
 class AreaEquivalenteResponse(BaseModel):
-    area_real_total_m2: Decimal
-    area_equivalente_total_m2: Decimal
-    fator_equivalente_medio: Decimal
-    itens: List[AreaItemOutput]
+    area_real_total_m2: Decimal = Field(..., description="Soma das áreas reais físicas de todos os ambientes.")
+    area_equivalente_total_m2: Decimal = Field(..., description="Área equivalente ponderada total da edificação segundo a NBR 12.721.")
+    fator_equivalente_medio: Decimal = Field(..., description="Fator médio de ponderação global da obra (Área Equivalente / Área Real).")
+    cub_m2_aplicado: Optional[Decimal] = Field(None, description="Valor do CUB/m² utilizado no cálculo (se informado ou consultado).")
+    custo_estimado_total: Optional[Decimal] = Field(None, description="Estimativa de Custo Global (R$) = Área Equivalente Total × CUB/m².")
+    itens: List[AreaItemOutput] = Field(..., description="Detalhamento individual de cada ambiente.")
+    nota_normativa: str = Field(
+        "Conforme a ABNT NBR 12.721:2006 (Quadro II), a multiplicação do CUB/m² deve ser efetuada sempre sobre a Área Equivalente Total, e jamais sobre a Área Real física. O CUB não contempla fundações especiais, elevadores, urbanização e BDI.",
+        description="Fundamentação técnica e legal do método de cálculo."
+    )
+
+
+class FatorAreaItem(BaseModel):
+    tipo_ambiente: str = Field(..., description="Classificação do ambiente.")
+    fator_padrao: Decimal = Field(..., description="Coeficiente padrão de ponderação (NBR 12.721 Quadro II).")
+    faixa_recomendada: str = Field(..., description="Intervalo normativo recomendado.")
+    descricao: str = Field(..., description="Orientações de aplicação segundo a norma.")
+
+
+class FatoresNormativosResponse(BaseModel):
+    norma: str = "ABNT NBR 12.721:2006 — Quadro II"
+    descricao: str = "Coeficientes canônicos para cálculo da Área Equivalente de Construção."
+    fatores: List[FatorAreaItem]
+
 
