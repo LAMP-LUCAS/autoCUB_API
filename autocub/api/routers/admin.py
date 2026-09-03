@@ -27,7 +27,14 @@ def trigger_etl(
     """
     lista_ufs = [u.strip().upper() for u in ufs.split(",")] if ufs else None
 
+    from autocub.core.temporal import sanitize_etl_range
+    try:
+        ano_inicio, ano_fim, max_mes = sanitize_etl_range(ano_inicio, ano_fim)
+    except ValueError as ve:
+        raise HTTPException(status_code=400, detail=str(ve))
+
     if desoneracao == "ambas":
+
         deson_list = ["sem-desoneracao", "com-desoneracao"]
     else:
         deson_list = [desoneracao]

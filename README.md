@@ -86,7 +86,10 @@ Para garantir que modificações futuras nos layouts dos relatórios mensais da 
 - **`CbicBookletAdapter`**: Adaptador para ingestão e estruturação dos dados perenes das Cartilhas Oficiais e da Lei Federal 4.591/64.
 - **`AdapterRegistry`**: Registro dinâmico de adaptadores com fábrica de resolução em tempo de execução.
 
+👉 **Documentação Completa do Consórcio CBIC e Adapters Futuros (SP, RS, AP, TO):** [`docs/CONSORCIO_CBIC_E_ADAPTERS.md`](docs/CONSORCIO_CBIC_E_ADAPTERS.md)
+
 ---
+
 
 ### 📁 Usando PDFs Locais do CUB (Cache / Offline)
 

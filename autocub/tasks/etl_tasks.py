@@ -30,6 +30,28 @@ def process_single_cub_report(
     desoneracao_slug = "COM_DESONERACAO" if "com" in desoneracao_param.lower() else "SEM_DESONERACAO"
     param_web = "com-desoneracao" if desoneracao_slug == "COM_DESONERACAO" else "sem-desoneracao"
 
+    # Verificação dinâmica de suporte da UF na CBIC
+    from autocub.downloader.discovery import cbic_discovery
+    if not cbic_discovery.is_uf_supported(uf):
+        logger.info(f"UF {uf} não integra o portal nacional cub.org.br. Requer adapter customizado.")
+        log_etl_execution(
+            db=db,
+            sinduscon_id=sinduscon_id,
+            ano=ano,
+            mes=mes,
+            desoneracao=desoneracao_slug,
+            status="NAO_SUPORTADO_CBIC",
+            registros=0,
+            mensagem_erro=f"UF {uf} não publica no portal central da CBIC. Requer adapter específico.",
+            duracao_ms=0
+        )
+        return 0
+
+    # Auto-resolução dinâmica de ID de Sinduscon
+    resolved_id = cbic_discovery.validate_or_resolve_sinduscon_id(uf, sinduscon_id)
+    if resolved_id:
+        sinduscon_id = resolved_id
+
     try:
         pdf_path, is_cached = collector.collect_pdf(
             uf=uf,
@@ -39,6 +61,7 @@ def process_single_cub_report(
             desoneracao=param_web,
             force_download=force_download
         )
+
 
         from autocub.adapters.registry import AdapterRegistry
         from autocub.core.cache import cache
@@ -139,21 +162,23 @@ def run_etl_pipeline(
 
     desoneracoes = desoneracoes or ["sem-desoneracao", "com-desoneracao"]
 
-    ano_atual = datetime.now().year
-    mes_atual = datetime.now().month
+    from autocub.core.temporal import sanitize_etl_range, get_max_published_period
+    ano_inicio, ano_fim, max_mes_limite = sanitize_etl_range(ano_inicio, ano_fim)
+    max_ano, _ = get_max_published_period()
 
     total_registros = 0
     total_relatorios = 0
 
     logger.info(
-        f"Iniciando ETL progressivo: Anos {ano_fim} -> {ano_inicio}, "
+        f"Iniciando ETL progressivo: Anos {ano_fim} -> {ano_inicio} "
+        f"(limite temporal publicado: mês {max_mes_limite:02d}/{max_ano}), "
         f"Sinduscons={len(sinduscons)}, Desonerações={desoneracoes}"
     )
 
     for ano in range(ano_fim, ano_inicio - 1, -1):
-        for mes in range(12, 0, -1):
-            if ano == ano_atual and mes > mes_atual:
-                continue
+        mes_teto = max_mes_limite if ano == max_ano else 12
+        for mes in range(mes_teto, 0, -1):
+
 
             for sind in sinduscons:
                 for deson in desoneracoes:
