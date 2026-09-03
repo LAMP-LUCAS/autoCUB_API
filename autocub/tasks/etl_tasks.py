@@ -40,14 +40,19 @@ def process_single_cub_report(
             force_download=force_download
         )
 
-        relatorio = parse_cub_pdf(
-            source=str(pdf_path),
+        from autocub.adapters.registry import AdapterRegistry
+        from autocub.core.cache import cache
+
+        pdf_adapter = AdapterRegistry.get_adapter("cbic_monthly_pdf_v1")
+        result = pdf_adapter.transform(
+            pdf_path,
             uf=uf,
             sinduscon_id=sinduscon_id,
             desoneracao=desoneracao_slug,
             ano_fallback=ano,
             mes_fallback=mes
         )
+        relatorio = result.data
 
         records = []
         for item in relatorio.itens:
@@ -64,7 +69,14 @@ def process_single_cub_report(
         count = upsert_cub_records(db, records)
         duracao_ms = int((time.time() - start_time) * 1000)
 
+        # Invalidação inteligente de cache Redis para dados atualizados
+        if count > 0:
+            cache.invalidate(f"cub:*:{uf}:*")
+            cache.invalidate("cub:br:*")
+            cache.invalidate("cub:rank:*")
+
         status_str = "CACHE_LOCAL" if is_cached else "SUCESSO"
+
         log_etl_execution(
             db=db,
             sinduscon_id=sinduscon_id,

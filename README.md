@@ -76,9 +76,20 @@ make populate-db
 Acesse a documentação Swagger OpenAPI em seu navegador:
 👉 **[http://localhost:8002/docs](http://localhost:8002/docs)**
 
+### 🧩 Arquitetura de Adapters (Ports & Adapters / Hexagonal)
+
+Para garantir que modificações futuras nos layouts dos relatórios mensais da CBIC ou inclusão de novas fontes não quebrem a API, o processamento segue o padrão desacoplado de adaptadores (`autocub/adapters/`):
+
+- **`BaseEtlAdapter`**: Interface abstrata (Port) definindo métodos padronizados `can_handle()`, `extract()` e `transform()`.
+- **`CbicMonthlyPdfV1Adapter`**: Adaptador especializado na leitura e extração vetorial determinística dos relatórios mensais em PDF (NBR 12.721:2006).
+- **`CbicCrawlerAdapter`**: Adaptador de coleta web responsável por gerenciar sessões HTTP, CSRF, cookies e taxa de requisições com jitter.
+- **`CbicBookletAdapter`**: Adaptador para ingestão e estruturação dos dados perenes das Cartilhas Oficiais e da Lei Federal 4.591/64.
+- **`AdapterRegistry`**: Registro dinâmico de adaptadores com fábrica de resolução em tempo de execução.
+
 ---
 
 ### 📁 Usando PDFs Locais do CUB (Cache / Offline)
+
 
 Para evitar sobrecarregar os servidores da CBIC e acelerar a carga de dados históricos, o autoCUB adota o mesmo princípio do autoSINAPI: **cache local em disco**.
 
@@ -105,21 +116,28 @@ O autoCUB estrutura rigorosamente os 19 projetos da norma:
 
 ---
 
-### 🔌 Principais Endpoints da API
+### 🔌 Principais Endpoints da API (Byte-Saving REST & Redis Cache)
 
-| Método | Rota | Descrição |
-|---|---|---|
-| `GET` | `/v1/sinduscons` | Lista os Sinduscons e UFs ativas na base |
-| `GET` | `/v1/padroes` | Catálogo completo dos 19 projetos-padrão da NBR 12.721:2006 |
-| `GET` | `/v1/cub/latest` | Cotações mais recentes com **origem completa** (UF, Sinduscon, Região) |
-| `GET` | `/v1/cub/{uf}` | Cotações de todos os padrões para o estado e período especificado |
-| `GET` | `/v1/cub/{uf}/panorama` | **Dashboard Analítico**: Estrutura hierárquica por categoria com métricas e médias pré-calculadas |
-| `GET` | `/v1/cub/{uf}/impacto-desoneracao` | **Inteligência Tributária**: Cruzamento automático e economia por m² da desoneração da folha |
-| `GET` | `/v1/cub/{uf}/historico/{codigo}` | Série temporal histórica com inflação setorial acumulada no período |
-| `GET` | `/v1/cub/comparativo` | Compara o custo do m² entre múltiplos estados (ex: `ufs=GO,MG,PR`) |
-| `GET` | `/v1/cub/ranking` | **Ranking Nacional**: Classifica estados por custo com desvio percentual da média |
-| `POST`| `/v1/admin/etl/trigger` | Disparo assíncrono do pipeline ETL via Celery |
-| `GET` | `/v1/admin/etl/logs` | Logs de telemetria e auditoria das execuções |
+| Método | Rota Concisa | Rota Legada / Alias | Descrição |
+|---|---|---|---|
+| `GET` | `/v1/cub/br` | - | **CUB Médio Brasil Oficial**: Média ponderada das 21 capitais (Quadro I e II CBIC) |
+| `GET` | `/v1/cub/latest` | - | Cotações mais recentes com **origem completa** (UF, Sinduscon, Região) |
+| `GET` | `/v1/cub/{uf}` | - | Cotações de todos os padrões para o estado e período especificado |
+| `GET` | `/v1/cub/{uf}/dash` | `/v1/cub/{uf}/panorama` | **Dashboard Analítico**: Estrutura NBR, médias e destaques (Cache Redis) |
+| `GET` | `/v1/cub/{uf}/deson` | `/v1/cub/{uf}/impacto-desoneracao` | **Inteligência Tributária**: Economia R$/m² da desoneração da folha (Cache Redis) |
+| `GET` | `/v1/cub/{uf}/hist/{cod}` | `/v1/cub/{uf}/historico/{cod}` | **Série Histórica**: Inflação setorial acumulada e médias mensais (Cache Redis) |
+| `GET` | `/v1/cub/rank` | `/v1/cub/ranking` | **Ranking Nacional**: Posição e desvio percentual da média (Cache Redis) |
+| `GET` | `/v1/cub/comp` | `/v1/cub/comparativo` | Comparativo de custos entre múltiplos estados (ex: `ufs=GO,MG,PR`) |
+| `GET` | `/v1/kb/faq` | - | **Base Perene**: Perguntas frequentes e itens oficiais **não inclusos** no CUB |
+| `GET` | `/v1/kb/insumos` | - | **Base Perene**: Lote básico dos 29 insumos e 4 famílias macro da NBR 12.721 |
+| `GET` | `/v1/kb/lei` | - | **Base Perene**: Fundamentos da Lei Federal 4.591/1964 e jurisprudência STJ |
+| `GET` | `/v1/kb/nbr` | - | **Base Perene**: Fatores de equivalência de custo normatizados (Quadro II) |
+| `POST`| `/v1/calc/area` | - | **Calculadora**: Área Equivalente de Construção (Quadro II NBR 12.721) |
+| `GET` | `/v1/padroes` | - | Catálogo dos 19 projetos-padrão enriquecidos com áreas e dormitórios |
+| `GET` | `/v1/sinduscons` | - | Lista os Sinduscons e UFs ativas na base |
+| `POST`| `/v1/admin/etl/trigger` | - | Disparo assíncrono do pipeline ETL via Celery |
+| `GET` | `/v1/admin/etl/logs` | - | Logs de telemetria e auditoria das execuções |
+
 
 
 ---

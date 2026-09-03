@@ -138,12 +138,38 @@ def test_cub_queries_and_comparativo(api_client, db_session):
     assert len(data_deson["projetos"]) == 1
     assert data_deson["projetos"][0]["codigo_padrao"] == "R1-N"
 
-    # 7. Ranking Nacional
-    resp_rank = api_client.get("/v1/cub/ranking?codigo_padrao=R1-N&ano=2026&mes=1")
+    # 7. Ranking Nacional (rota concisa /rank e /ranking)
+    resp_rank = api_client.get("/v1/cub/rank?codigo_padrao=R1-N&ano=2026&mes=1")
     assert resp_rank.status_code == 200
     data_rank = resp_rank.json()
     assert data_rank["total_estados"] == 2
     assert len(data_rank["ranking"]) == 2
     assert data_rank["ranking"][0]["posicao"] == 1
     assert data_rank["ranking"][0]["desvio_media_pct"] is not None
+
+    # 8. Rotas Concisas Equivalentes
+    resp_dash = api_client.get("/v1/cub/GO/dash?ano=2026&mes=1")
+    assert resp_dash.status_code == 200
+    assert resp_dash.json()["uf"] == "GO"
+
+    resp_deson_c = api_client.get("/v1/cub/GO/deson?ano=2026&mes=1")
+    assert resp_deson_c.status_code == 200
+    assert resp_deson_c.json()["uf"] == "GO"
+
+    resp_hist_c = api_client.get("/v1/cub/GO/hist/R1-N")
+    assert resp_hist_c.status_code == 200
+    assert resp_hist_c.json()["codigo_padrao"] == "R1-N"
+
+    resp_comp_c = api_client.get("/v1/cub/comp?ufs=GO,MG&codigo_padrao=R1-N&ano=2026&mes=1")
+    assert resp_comp_c.status_code == 200
+    assert resp_comp_c.json()["total_comparados"] == 2
+
+    # 9. CUB Médio Brasil Oficial Ponderado
+    resp_br = api_client.get("/v1/cub/br?ano=2026&mes=1")
+    assert resp_br.status_code == 200
+    data_br = resp_br.json()
+    assert float(data_br["cub_medio_brasil"]) > 0
+    assert data_br["total_estados_ponderados"] >= 1
+    assert "CENTRO-OESTE" in data_br["por_regiao"]
+
 

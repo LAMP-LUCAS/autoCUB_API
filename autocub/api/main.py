@@ -6,7 +6,10 @@ from fastapi.responses import RedirectResponse
 from autocub.core.config import settings
 from autocub.core.logging import logger
 from autocub.database.connection import init_db, engine
-from autocub.api.routers import cub_router, metadata_router, admin_router
+from autocub.api.routers import cub_router, metadata_router, admin_router, kb_router, calc_router
+
+
+
 
 
 @asynccontextmanager
@@ -44,6 +47,9 @@ app.add_middleware(
 app.include_router(metadata_router, prefix=settings.API_PREFIX)
 app.include_router(cub_router, prefix=settings.API_PREFIX)
 app.include_router(admin_router, prefix=settings.API_PREFIX)
+app.include_router(kb_router, prefix=settings.API_PREFIX)
+app.include_router(calc_router, prefix=settings.API_PREFIX)
+
 
 
 @app.get("/", include_in_schema=False)

@@ -37,7 +37,13 @@ class PadraoResponse(BaseModel):
     categoria: str
     padrao_acabamento: str
     pavimentos: Optional[int] = None
+    area_real: Optional[Decimal] = None
+    area_equivalente: Optional[Decimal] = None
+    dormitorios: Optional[int] = None
+    vagas_garagem: Optional[int] = None
+    elevadores: Optional[int] = None
     descricao: Optional[str] = None
+
 
 
 class SindusconResponse(BaseModel):
@@ -211,3 +217,44 @@ class EtlTriggerResponse(BaseModel):
     task_id: str
     status: str
     mensagem: str
+
+
+class CubBrasilItem(BaseModel):
+    uf: str
+    sinduscon_nome: str
+    regiao: str
+    projeto_representativo: str
+    peso_relativo: Decimal
+    valor_m2: Decimal
+    participacao_efetiva_pct: Decimal
+
+
+class CubBrasilResponse(BaseModel):
+    data_referencia: date
+    desoneracao: str
+    cub_medio_brasil: Decimal
+    total_estados_ponderados: int
+    soma_pesos: Decimal
+    por_regiao: Dict[str, Decimal]
+    estados: List[CubBrasilItem]
+
+
+class AreaItemInput(BaseModel):
+    ambiente: str  # ex: "Apartamento Tipo", "Garagem Coberta", "Varanda"
+    area_real_m2: Decimal
+    fator_ponderacao: Optional[Decimal] = None  # Se omitido, usa sugestão NBR
+
+
+class AreaItemOutput(BaseModel):
+    ambiente: str
+    area_real_m2: Decimal
+    fator_utilizado: Decimal
+    area_equivalente_m2: Decimal
+
+
+class AreaEquivalenteResponse(BaseModel):
+    area_real_total_m2: Decimal
+    area_equivalente_total_m2: Decimal
+    fator_equivalente_medio: Decimal
+    itens: List[AreaItemOutput]
+

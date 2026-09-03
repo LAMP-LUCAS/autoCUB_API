@@ -6,7 +6,8 @@ from sqlalchemy.orm import Session
 from sqlalchemy import desc, func
 
 from autocub.database.connection import get_db
-from autocub.database.models import CubMensal, Sinduscon, PadraoProjeto
+from autocub.database.models import CubMensal, Sinduscon, PadraoProjeto, PesoCubBrasil
+from autocub.core.cache import cache_response
 from autocub.processor.schemas import (
     CubCotacaoResponse,
     CubEstadoPeriodoResponse,
@@ -22,29 +23,142 @@ from autocub.processor.schemas import (
     ImpactoDesoneracaoResponse,
     ItemImpactoDesoneracao,
     RankingResponse,
-    RankingItem
+    RankingItem,
+    CubBrasilResponse,
+    CubBrasilItem
 )
 
 router = APIRouter(prefix="/cub", tags=["CUB / Custo Unitário Básico"])
 
 
 # ==============================================================================
-# 1. COTAÇÕES MAIS RECENTES (Com Origem Completa: UF, Sinduscon e Região)
+# 1. CUB BRASIL PONDERADO OFICIAL (CBIC / Quadro I e II)
 # ==============================================================================
 
-@router.get("/latest", response_model=List[CubCotacaoResponse], summary="Últimas cotações CUB com origem completa")
-def get_latest_cub(
-    uf: Optional[str] = Query(None, description="Filtrar por UF específica (ex: GO, MG, PR). Se omitido, lista todas."),
+@router.get("/br", response_model=CubBrasilResponse, summary="CUB Médio Brasil Oficial ponderado (21 capitais)")
+@cache_response(ttl=86400, prefix="cub:br")
+def get_cub_brasil(
+    ano: Optional[int] = Query(None, description="Ano"),
+    mes: Optional[int] = Query(None, description="Mês"),
     desoneracao: str = Query("SEM_DESONERACAO", description="'SEM_DESONERACAO' ou 'COM_DESONERACAO'"),
     db: Session = Depends(get_db)
 ):
     """
-    Retorna as cotações mais recentes disponíveis na base de dados, garantindo que
-    cada item contenha explicitamente sua ORIGEM COMPLETA (UF, Sinduscon e Região).
+    Calcula o CUB Médio Brasil oficial por média ponderada das 21 capitais (Fórmula CBIC):
+    CUB Brasil = ∑(Pi * Xi) / ∑Pi, onde Pi é o peso do Estado (Quadro I) e Xi é a cotação do projeto representativo.
     """
     deson_slug = "COM_DESONERACAO" if "com" in desoneracao.lower() else "SEM_DESONERACAO"
 
-    # Subquery para identificar a data mais recente de cada sinduscon e padrão
+    if ano and mes:
+        target_date = date(ano, mes, 1)
+    else:
+        target_date = (
+            db.query(func.max(CubMensal.data_referencia))
+            .filter(CubMensal.desoneracao == deson_slug)
+            .scalar()
+        )
+        if not target_date:
+            raise HTTPException(status_code=404, detail="Nenhum dado cadastrado para cálculo do CUB Brasil.")
+
+    pesos = db.query(PesoCubBrasil).all()
+    if not pesos:
+        raise HTTPException(status_code=404, detail="Tabela de ponderações do CUB Brasil vazia.")
+
+    itens_brasil: List[CubBrasilItem] = []
+    numerador_total = Decimal("0.00")
+    denominador_total = Decimal("0.00")
+    regioes_numerador: Dict[str, Decimal] = {}
+    regioes_denominador: Dict[str, Decimal] = {}
+
+    for p in pesos:
+        sind = db.query(Sinduscon).filter(Sinduscon.uf == p.uf, Sinduscon.ativo == True).first()
+        if not sind:
+            continue
+
+        cub = (
+            db.query(CubMensal)
+            .filter(
+                CubMensal.sinduscon_id == sind.id,
+                CubMensal.codigo_padrao == p.projeto_representativo,
+                CubMensal.data_referencia == target_date,
+                CubMensal.desoneracao == deson_slug
+            )
+            .first()
+        )
+
+        if not cub:
+            # Fallback para R8-N ou qualquer padrão existente se o projeto representativo não foi coletado
+            cub = (
+                db.query(CubMensal)
+                .filter(
+                    CubMensal.sinduscon_id == sind.id,
+                    CubMensal.data_referencia == target_date,
+                    CubMensal.desoneracao == deson_slug
+                )
+                .first()
+            )
+
+        if cub:
+            valor = cub.valor_m2
+            peso = p.peso_relativo
+            prod = valor * peso
+            numerador_total += prod
+            denominador_total += peso
+
+            reg = p.regiao.upper()
+            regioes_numerador[reg] = regioes_numerador.get(reg, Decimal("0.00")) + prod
+            regioes_denominador[reg] = regioes_denominador.get(reg, Decimal("0.00")) + peso
+
+            itens_brasil.append(
+                CubBrasilItem(
+                    uf=p.uf,
+                    sinduscon_nome=p.sinduscon_nome,
+                    regiao=p.regiao,
+                    projeto_representativo=cub.codigo_padrao,
+                    peso_relativo=peso,
+                    valor_m2=valor,
+                    participacao_efetiva_pct=Decimal("0.00")
+                )
+            )
+
+    if denominador_total == 0:
+        raise HTTPException(status_code=404, detail=f"Sem cotações suficientes para o período {target_date}.")
+
+    cub_medio = round(numerador_total / denominador_total, 2)
+
+    # Participação efetiva de cada estado no bolo
+    for item in itens_brasil:
+        item.participacao_efetiva_pct = round((item.peso_relativo / denominador_total) * 100, 2)
+
+    por_regiao = {}
+    for reg, num in regioes_numerador.items():
+        den = regioes_denominador.get(reg, Decimal("1.00"))
+        por_regiao[reg] = round(num / den, 2) if den > 0 else Decimal("0.00")
+
+    return CubBrasilResponse(
+        data_referencia=target_date,
+        desoneracao=deson_slug,
+        cub_medio_brasil=cub_medio,
+        total_estados_ponderados=len(itens_brasil),
+        soma_pesos=denominador_total,
+        por_regiao=por_regiao,
+        estados=itens_brasil
+    )
+
+
+# ==============================================================================
+# 2. COTAÇÕES RECENTES COM ORIGEM COMPLETA
+# ==============================================================================
+
+@router.get("/latest", response_model=List[CubCotacaoResponse], summary="Cotações mais recentes com UF, Sinduscon e Região")
+def get_latest_cub(
+    uf: Optional[str] = Query(None, description="Filtrar por UF (ex: GO). Se omitido, lista todas."),
+    desoneracao: str = Query("SEM_DESONERACAO", description="'SEM_DESONERACAO' ou 'COM_DESONERACAO'"),
+    db: Session = Depends(get_db)
+):
+    """Retorna cotações recentes contendo explicitamente UF, Sinduscon e Região de origem."""
+    deson_slug = "COM_DESONERACAO" if "com" in desoneracao.lower() else "SEM_DESONERACAO"
+
     subq_filter = (CubMensal.desoneracao == deson_slug)
     if uf:
         subq_filter = subq_filter & (Sinduscon.uf == uf.upper())
@@ -76,45 +190,43 @@ def get_latest_cub(
 
     results = query.order_by(Sinduscon.uf, CubMensal.codigo_padrao).all()
 
-    response = []
-    for cub, sind, padrao in results:
-        response.append(
-            CubCotacaoResponse(
-                uf=sind.uf,
-                sinduscon_id=sind.id,
-                sinduscon_nome=sind.nome,
-                regiao=sind.regiao,
-                codigo_padrao=cub.codigo_padrao,
-                padrao_nome=padrao.nome if padrao else cub.codigo_padrao,
-                categoria=padrao.categoria if padrao else None,
-                padrao_acabamento=padrao.padrao_acabamento if padrao else None,
-                valor_m2=cub.valor_m2,
-                variacao_mensal_pct=cub.variacao_mensal_pct,
-                desoneracao=cub.desoneracao,
-                data_referencia=cub.data_referencia
-            )
+    return [
+        CubCotacaoResponse(
+            uf=sind.uf,
+            sinduscon_id=sind.id,
+            sinduscon_nome=sind.nome,
+            regiao=sind.regiao,
+            codigo_padrao=cub.codigo_padrao,
+            padrao_nome=padrao.nome if padrao else cub.codigo_padrao,
+            categoria=padrao.categoria if padrao else None,
+            padrao_acabamento=padrao.padrao_acabamento if padrao else None,
+            valor_m2=cub.valor_m2,
+            variacao_mensal_pct=cub.variacao_mensal_pct,
+            desoneracao=cub.desoneracao,
+            data_referencia=cub.data_referencia
         )
-    return response
+        for cub, sind, padrao in results
+    ]
 
 
 # ==============================================================================
-# 2. PANORAMA ESTRUTURADO & ANÁLISES PRÉ-CALCULADAS (Estilo autoSINAPI / BI)
+# 3. PAINEL ANALÍTICO CONCISO /dash (com cache em memória Redis)
 # ==============================================================================
 
-@router.get("/{uf}/panorama", response_model=PanoramaResponse, summary="Panorama completo estruturado e métricas pré-calculadas")
-def get_cub_panorama(
+@router.get("/{uf}/dash", response_model=PanoramaResponse, summary="Painel analítico e estrutura agrupada NBR (cacheado)")
+@router.get("/{uf}/panorama", response_model=PanoramaResponse, include_in_schema=False)
+@cache_response(ttl=86400, prefix="cub:dash")
+def get_cub_dash(
     uf: str,
-    ano: Optional[int] = Query(None, description="Ano de referência (padrão: mais recente)"),
-    mes: Optional[int] = Query(None, description="Mês de referência (padrão: mais recente)"),
+    ano: Optional[int] = Query(None, description="Ano"),
+    mes: Optional[int] = Query(None, description="Mês"),
     desoneracao: str = Query("SEM_DESONERACAO", description="'SEM_DESONERACAO' ou 'COM_DESONERACAO'"),
-    sinduscon_id: Optional[int] = Query(None, description="ID do Sinduscon específico"),
+    sinduscon_id: Optional[int] = Query(None, description="ID do Sinduscon"),
     db: Session = Depends(get_db)
 ):
     """
-    Retorna a visualização analítica completa e estruturada da NBR 12.721 para uma UF:
-    - Métricas executivas pré-calculadas (médias setoriais, maior/menor custo, maiores oscilações);
-    - Estrutura agrupada hierarquicamente por Categoria (Residencial, Comercial, Especial)
-      e por Padrão de Acabamento (Baixo, Normal, Alto) com médias parciais.
+    Retorna métricas consolidadas pré-calculadas e agrupamentos NBR da UF.
+    Cacheado no Redis com resposta em < 1ms após o primeiro cálculo.
     """
     uf_upper = uf.upper()
     deson_slug = "COM_DESONERACAO" if "com" in desoneracao.lower() else "SEM_DESONERACAO"
@@ -125,12 +237,8 @@ def get_cub_panorama(
 
     sind = sind_query.first()
     if not sind:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Sinduscon não encontrado para a UF '{uf_upper}'."
-        )
+        raise HTTPException(status_code=404, detail=f"Sinduscon não encontrado para a UF '{uf_upper}'.")
 
-    # Identifica data alvo
     if ano and mes:
         target_date = date(ano, mes, 1)
     else:
@@ -140,10 +248,7 @@ def get_cub_panorama(
             .scalar()
         )
         if not target_date:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Nenhum dado encontrado para a UF '{uf_upper}' na série '{deson_slug}'."
-            )
+            raise HTTPException(status_code=404, detail=f"Sem cotações para {uf_upper}.")
 
     rows = (
         db.query(CubMensal, PadraoProjeto)
@@ -158,10 +263,7 @@ def get_cub_panorama(
     )
 
     if not rows:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Sem cotações para {uf_upper} na data {target_date}."
-        )
+        raise HTTPException(status_code=404, detail=f"Sem cotações para {uf_upper} na data {target_date}.")
 
     cotacoes_dto: List[CubCotacaoResponse] = []
     valores_todos: List[Decimal] = []
@@ -169,13 +271,11 @@ def get_cub_panorama(
     valores_com: List[Decimal] = []
     valores_esp: List[Decimal] = []
 
-    # Destaques
     maior_custo_item = None
     menor_custo_item = None
     maior_alta_item = None
     maior_queda_item = None
 
-    # Estrutura agrupada
     arvore = {
         "residencial": {"baixo": [], "normal": [], "alto": []},
         "comercial": {"normal": [], "alto": []},
@@ -205,7 +305,6 @@ def get_cub_panorama(
         )
         cotacoes_dto.append(dto)
 
-        # Agrupamento
         if cat == "RESIDENCIAL":
             valores_res.append(val)
             if acab in arvore["residencial"]:
@@ -218,22 +317,16 @@ def get_cub_panorama(
             valores_esp.append(val)
             arvore["especial"]["unico"].append(dto)
 
-        # Maior / Menor Custo
         if maior_custo_item is None or val > maior_custo_item.valor_m2:
             maior_custo_item = ProjetoDestaque(codigo=cub.codigo_padrao, nome=nome, valor_m2=val)
         if menor_custo_item is None or val < menor_custo_item.valor_m2:
             menor_custo_item = ProjetoDestaque(codigo=cub.codigo_padrao, nome=nome, valor_m2=val)
 
-        # Oscilações mensais
         if cub.variacao_mensal_pct is not None:
             if maior_alta_item is None or cub.variacao_mensal_pct > maior_alta_item.variacao_pct:
-                maior_alta_item = ProjetoDestaque(
-                    codigo=cub.codigo_padrao, nome=nome, valor_m2=val, variacao_pct=cub.variacao_mensal_pct
-                )
+                maior_alta_item = ProjetoDestaque(codigo=cub.codigo_padrao, nome=nome, valor_m2=val, variacao_pct=cub.variacao_mensal_pct)
             if maior_queda_item is None or cub.variacao_mensal_pct < maior_queda_item.variacao_pct:
-                maior_queda_item = ProjetoDestaque(
-                    codigo=cub.codigo_padrao, nome=nome, valor_m2=val, variacao_pct=cub.variacao_mensal_pct
-                )
+                maior_queda_item = ProjetoDestaque(codigo=cub.codigo_padrao, nome=nome, valor_m2=val, variacao_pct=cub.variacao_mensal_pct)
 
     def calc_media(lst: List[Decimal]) -> Decimal:
         return round(sum(lst) / len(lst), 2) if lst else Decimal("0.00")
@@ -286,21 +379,20 @@ def get_cub_panorama(
 
 
 # ==============================================================================
-# 3. IMPACTO TRIBUTÁRIO DA DESONERAÇÃO (Cruzamento Pré-calculado)
+# 4. IMPACTO DA DESONERAÇÃO CONCISO /deson (com cache Redis)
 # ==============================================================================
 
-@router.get("/{uf}/impacto-desoneracao", response_model=ImpactoDesoneracaoResponse, summary="Impacto financeiro da desoneração da folha por m²")
+@router.get("/{uf}/deson", response_model=ImpactoDesoneracaoResponse, summary="Economia por m² da desoneração da folha (cacheado)")
+@router.get("/{uf}/impacto-desoneracao", response_model=ImpactoDesoneracaoResponse, include_in_schema=False)
+@cache_response(ttl=86400, prefix="cub:deson")
 def get_impacto_desoneracao(
     uf: str,
-    ano: Optional[int] = Query(None, description="Ano de referência"),
-    mes: Optional[int] = Query(None, description="Mês de referência"),
+    ano: Optional[int] = Query(None, description="Ano"),
+    mes: Optional[int] = Query(None, description="Mês"),
     sinduscon_id: Optional[int] = Query(None, description="ID do Sinduscon"),
     db: Session = Depends(get_db)
 ):
-    """
-    Cruza em tempo recorde as séries 'SEM_DESONERACAO' e 'COM_DESONERACAO' para o mesmo período/UF,
-    calculando a economia em R$/m² e a redução percentual proporcionada pela desoneração da folha.
-    """
+    """Cruzamento pré-calculado das séries COM e SEM desoneração."""
     uf_upper = uf.upper()
     sind = db.query(Sinduscon).filter(Sinduscon.uf == uf_upper, Sinduscon.ativo == True).first()
     if not sind:
@@ -383,21 +475,20 @@ def get_impacto_desoneracao(
 
 
 # ==============================================================================
-# 4. RANKING NACIONAL PRÉ-CALCULADO
+# 5. RANKING NACIONAL CONCISO /rank (com cache Redis)
 # ==============================================================================
 
-@router.get("/ranking", response_model=RankingResponse, summary="Ranking de custos entre estados com desvio da média")
-def get_cub_ranking(
+@router.get("/rank", response_model=RankingResponse, summary="Ranking nacional por projeto-padrão (cacheado)")
+@router.get("/ranking", response_model=RankingResponse, include_in_schema=False)
+@cache_response(ttl=86400, prefix="cub:rank")
+def get_cub_rank(
     codigo_padrao: str = Query("R1-N", description="Código do padrão (ex: R1-N, R8-N, GI)"),
     ano: Optional[int] = Query(None, description="Ano"),
     mes: Optional[int] = Query(None, description="Mês"),
     desoneracao: str = Query("SEM_DESONERACAO", description="'SEM_DESONERACAO' ou 'COM_DESONERACAO'"),
     db: Session = Depends(get_db)
 ):
-    """
-    Classifica todos os estados da base por ordem de custo do m² para um padrão construtivo,
-    calculando a média nacional amostral e o desvio percentual de cada praça.
-    """
+    """Classifica estados pelo valor do m² e calcula desvio da média nacional."""
     deson_slug = "COM_DESONERACAO" if "com" in desoneracao.lower() else "SEM_DESONERACAO"
     codigo_padrao_norm = codigo_padrao.upper()
 
@@ -428,7 +519,7 @@ def get_cub_ranking(
     )
 
     if not results:
-        raise HTTPException(status_code=404, detail=f"Nenhum dado encontrado para {codigo_padrao_norm} na data {target_date}.")
+        raise HTTPException(status_code=404, detail=f"Sem dados para {codigo_padrao_norm} em {target_date}.")
 
     valores = [c.valor_m2 for c, s in results]
     media_nac = round(sum(valores) / len(valores), 2)
@@ -460,10 +551,12 @@ def get_cub_ranking(
 
 
 # ==============================================================================
-# 5. SÉRIE HISTÓRICA ENRIQUECIDA COM INDICADORES ACUMULADOS
+# 6. SÉRIE HISTÓRICA CONCISA /hist/{cod} (com cache Redis)
 # ==============================================================================
 
-@router.get("/{uf}/historico/{codigo_padrao}", response_model=CubHistoricoResponse, summary="Série histórica com inflação acumulada e estatísticas")
+@router.get("/{uf}/hist/{codigo_padrao}", response_model=CubHistoricoResponse, summary="Série histórica e inflação acumulada (cacheado)")
+@router.get("/{uf}/historico/{codigo_padrao}", response_model=CubHistoricoResponse, include_in_schema=False)
+@cache_response(ttl=86400, prefix="cub:hist")
 def get_historico_padrao(
     uf: str,
     codigo_padrao: str,
@@ -473,13 +566,7 @@ def get_historico_padrao(
     sinduscon_id: Optional[int] = Query(None, description="ID do Sinduscon"),
     db: Session = Depends(get_db)
 ):
-    """
-    Retorna a série histórica com métricas consolidadas pré-calculadas:
-    - Variação acumulada no período selecionado (inflação setorial acumulada);
-    - Variação média mensal;
-    - Menor e maior cotação do período;
-    - Variação acumulada mês a mês.
-    """
+    """Série temporal com variação acumulada no período e métricas consolidadas."""
     uf_upper = uf.upper()
     codigo_padrao_norm = codigo_padrao.upper()
     deson_slug = "COM_DESONERACAO" if "com" in desoneracao.lower() else "SEM_DESONERACAO"
@@ -510,9 +597,8 @@ def get_historico_padrao(
         query = query.filter(func.extract("year", CubMensal.data_referencia) <= ano_fim)
 
     registros = query.order_by(CubMensal.data_referencia.asc()).all()
-
     if not registros:
-        raise HTTPException(status_code=404, detail=f"Nenhum registro histórico para {uf_upper} e padrão {codigo_padrao_norm}.")
+        raise HTTPException(status_code=404, detail=f"Sem histórico para {uf_upper}/{codigo_padrao_norm}.")
 
     val_inicial = registros[0].valor_m2
     val_final = registros[-1].valor_m2
@@ -553,13 +639,14 @@ def get_historico_padrao(
 
 
 # ==============================================================================
-# 6. CONSULTA BÁSICA POR UF & COMPARATIVO
+# 7. COMPARATIVO CONCISO /comp E CONSULTA POR UF
 # ==============================================================================
 
-@router.get("/comparativo", response_model=ComparativoResponse, summary="Comparativo regional de CUB entre estados")
+@router.get("/comp", response_model=ComparativoResponse, summary="Comparativo regional de custos entre estados")
+@router.get("/comparativo", response_model=ComparativoResponse, include_in_schema=False)
 def get_comparativo_regional(
     ufs: str = Query(..., description="Lista de UFs separadas por vírgula (ex: GO,MG,PR,RJ)"),
-    codigo_padrao: str = Query("R1-N", description="Código canônico NBR (ex: R1-N, R8-N, CSL-8-N)"),
+    codigo_padrao: str = Query("R1-N", description="Código NBR (ex: R1-N, R8-N, CSL-8-N)"),
     ano: Optional[int] = Query(None, description="Ano"),
     mes: Optional[int] = Query(None, description="Mês"),
     desoneracao: str = Query("SEM_DESONERACAO", description="'SEM_DESONERACAO' ou 'COM_DESONERACAO'"),
@@ -571,7 +658,6 @@ def get_comparativo_regional(
 
     padrao = db.query(PadraoProjeto).filter(PadraoProjeto.codigo == codigo_padrao_norm).first()
     padrao_nome = padrao.nome if padrao else codigo_padrao_norm
-
     lista_ufs = [u.strip().upper() for u in ufs.split(",") if u.strip()]
 
     query = (

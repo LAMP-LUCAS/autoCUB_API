@@ -48,12 +48,35 @@ class PadraoProjeto(Base):
     categoria = Column(String(30), nullable=False)  # 'RESIDENCIAL', 'COMERCIAL', 'ESPECIAL'
     padrao_acabamento = Column(String(10), nullable=False)  # 'BAIXO', 'NORMAL', 'ALTO', 'UNICO'
     pavimentos = Column(Integer, nullable=True)
+    area_real = Column(Numeric(10, 2), nullable=True)
+    area_equivalente = Column(Numeric(10, 2), nullable=True)
+    dormitorios = Column(Integer, nullable=True)
+    vagas_garagem = Column(Integer, nullable=True)
+    elevadores = Column(Integer, nullable=True)
     descricao = Column(Text, nullable=True)
 
     cotacoes = relationship("CubMensal", back_populates="padrao_projeto")
 
     def __repr__(self) -> str:
         return f"<PadraoProjeto(codigo='{self.codigo}', nome='{self.nome}')>"
+
+
+class PesoCubBrasil(Base):
+    """
+    Ponderações oficiais relativas dos Estados para o cálculo do CUB Médio Brasil (CBIC/Quadro I).
+    """
+    __tablename__ = "pesos_cub_brasil"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    uf = Column(String(2), nullable=False, unique=True, index=True)
+    sinduscon_nome = Column(String(100), nullable=False)
+    regiao = Column(String(20), nullable=False)
+    projeto_representativo = Column(String(20), nullable=False, default="R8-N")
+    peso_relativo = Column(Numeric(10, 4), nullable=False)
+
+    def __repr__(self) -> str:
+        return f"<PesoCubBrasil(uf='{self.uf}', peso={self.peso_relativo})>"
+
 
 
 class CubMensal(Base):
