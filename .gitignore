@@ -60,5 +60,9 @@ autocub_downloads/*
 .idea/
 *.swp
 
-# Temporary scratch folder
+# Temporary scratch folder & auxiliary scripts
 scratch/
+scripts/
+*.bak
+*.tmp
+*.log
