@@ -123,3 +123,22 @@ def list_etl_logs(
         }
         for l in logs
     ]
+
+
+@router.get(
+    "/etl/report",
+    summary="Relatório executivo consolidado de auditoria e telemetria do ETL",
+    description=(
+        "**Dor que resolve:** Visibilidade total e em tempo real sobre a saúde do pipeline de dados, "
+        "conciliação de cotações no PostgreSQL, taxas de sucesso/cache/falha, categorização dos principais "
+        "motivos de erro, ocupação física de disco (PDFs e banco) e consumo de hardware (CPU, RAM, Rede).\n\n"
+        "**Retorno:** Métricas consolidadas de eficiência, conciliação do banco, espaço em disco e telemetria de hardware."
+    )
+)
+def get_etl_telemetry_report(
+    db: Session = Depends(get_db)
+):
+    """Retorna o relatório consolidado de auditoria forense e telemetria do ETL."""
+    from autocub.core.telemetry import generate_etl_audit_summary
+    return generate_etl_audit_summary(db=db)
+

@@ -59,3 +59,6 @@ autocub_downloads/*
 .vscode/
 .idea/
 *.swp
+
+# Temporary scratch folder
+scratch/

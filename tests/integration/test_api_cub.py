@@ -173,3 +173,16 @@ def test_cub_queries_and_comparativo(api_client, db_session):
     assert "CENTRO-OESTE" in data_br["por_regiao"]
 
 
+@pytest.mark.integration
+def test_etl_telemetry_report_endpoint(api_client):
+    resp = api_client.get("/v1/admin/etl/report")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "eficiencia" in data
+    assert "conciliacao_banco" in data
+    assert "armazenamento_fisico" in data
+    assert "hardware_telemetria" in data
+    assert data["conciliacao_banco"]["sinduscons_ativos"] >= 20
+
+
+

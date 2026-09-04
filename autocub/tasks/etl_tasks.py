@@ -1,13 +1,13 @@
 import time
 from datetime import datetime, date
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 from autocub.core.logging import logger
 from autocub.database.connection import SessionLocal
 from autocub.database.models import Sinduscon
 from autocub.database.loader import upsert_cub_records, log_etl_execution
 from autocub.downloader.collector import CubCollector
-from autocub.processor.parser import parse_cub_pdf
 from autocub.tasks.celery_app import celery_app
+from autocub.core.telemetry import generate_etl_audit_summary
 
 
 def process_single_cub_report(
@@ -45,6 +45,7 @@ def process_single_cub_report(
             mensagem_erro=f"UF {uf} não publica no portal central da CBIC. Requer adapter específico.",
             duracao_ms=0
         )
+        db.close()
         return 0
 
     # Auto-resolução dinâmica de ID de Sinduscon
@@ -61,7 +62,6 @@ def process_single_cub_report(
             desoneracao=param_web,
             force_download=force_download
         )
-
 
         from autocub.adapters.registry import AdapterRegistry
         from autocub.core.cache import cache
@@ -136,18 +136,67 @@ def process_single_cub_report(
         db.close()
 
 
+def process_chunk_cub(
+    sinduscon_id: int,
+    uf: str,
+    ano: int,
+    meses: List[int],
+    desoneracoes: List[str],
+    force_download: bool = False
+) -> Dict[str, Any]:
+    """
+    Sub-tarefa granular que processa 1 Sinduscon para 1 Ano específico.
+    Duração típica: 15s a 50s. Imune a timeout de tarefas monolíticas.
+    """
+    total_registros = 0
+    total_relatorios = 0
+    start_time = time.time()
+
+    for mes in meses:
+        for deson in desoneracoes:
+            count = process_single_cub_report(
+                sinduscon_id=sinduscon_id,
+                uf=uf,
+                ano=ano,
+                mes=mes,
+                desoneracao_param=deson,
+                force_download=force_download
+            )
+            if count > 0:
+                total_registros += count
+                total_relatorios += 1
+
+    duracao = round(time.time() - start_time, 2)
+    logger.info(
+        f"Chunk concluído: {uf} (ID {sinduscon_id}) - Ano {ano} | "
+        f"{total_relatorios} relatórios, {total_registros} registros salvos ({duracao}s)"
+    )
+
+    return {
+        "sinduscon_id": sinduscon_id,
+        "uf": uf,
+        "ano": ano,
+        "relatorios_processados": total_relatorios,
+        "registros_salvos": total_registros,
+        "duracao_segundos": duracao
+    }
+
+
 def run_etl_pipeline(
     ano_inicio: int,
     ano_fim: int,
     ufs: Optional[List[str]] = None,
     desoneracoes: Optional[List[str]] = None,
-    force_download: bool = False
-) -> dict:
+    force_download: bool = False,
+    emit_telemetry: bool = True
+) -> Dict[str, Any]:
     """
-    Pipeline principal executado progressivamente:
-    Ano mais recente para o mais antigo, mês 12 para mês 1.
+    Pipeline principal orquestrador:
+    Executa por chunks granulares (Sinduscon x Ano x Meses) e emite
+    relatório completo de auditoria e telemetria ao final.
     """
     db = SessionLocal()
+    # Filtra apenas sindicatos ATIVOS (ignora inativos que não publicam na CBIC)
     query = db.query(Sinduscon).filter(Sinduscon.ativo == True)
     if ufs:
         upper_ufs = [u.upper() for u in ufs]
@@ -157,7 +206,7 @@ def run_etl_pipeline(
     db.close()
 
     if not sinduscons:
-        logger.warning("Nenhum Sinduscon encontrado para os filtros informados.")
+        logger.warning("Nenhum Sinduscon ativo encontrado para os filtros informados.")
         return {"status": "vazio", "total_processado": 0}
 
     desoneracoes = desoneracoes or ["sem-desoneracao", "com-desoneracao"]
@@ -168,37 +217,45 @@ def run_etl_pipeline(
 
     total_registros = 0
     total_relatorios = 0
+    total_chunks = len(sinduscons) * (ano_fim - ano_inicio + 1)
+    chunk_idx = 0
 
     logger.info(
-        f"Iniciando ETL progressivo: Anos {ano_fim} -> {ano_inicio} "
+        f"Iniciando orquestração do ETL: Anos {ano_fim} -> {ano_inicio} "
         f"(limite temporal publicado: mês {max_mes_limite:02d}/{max_ano}), "
-        f"Sinduscons={len(sinduscons)}, Desonerações={desoneracoes}"
+        f"Sinduscons ativos={len(sinduscons)}, Total de chunks={total_chunks}"
     )
 
     for ano in range(ano_fim, ano_inicio - 1, -1):
         mes_teto = max_mes_limite if ano == max_ano else 12
-        for mes in range(mes_teto, 0, -1):
+        meses_para_processar = list(range(mes_teto, 0, -1))
 
+        for sind in sinduscons:
+            chunk_idx += 1
+            logger.info(f"Executando chunk [{chunk_idx}/{total_chunks}]: {sind.uf} / {sind.nome} - Ano {ano}")
 
-            for sind in sinduscons:
-                for deson in desoneracoes:
-                    count = process_single_cub_report(
-                        sinduscon_id=sind.id,
-                        uf=sind.uf,
-                        ano=ano,
-                        mes=mes,
-                        desoneracao_param=deson,
-                        force_download=force_download
-                    )
-                    if count > 0:
-                        total_registros += count
-                        total_relatorios += 1
+            res = process_chunk_cub(
+                sinduscon_id=sind.id,
+                uf=sind.uf,
+                ano=ano,
+                meses=meses_para_processar,
+                desoneracoes=desoneracoes,
+                force_download=force_download
+            )
+            total_registros += res["registros_salvos"]
+            total_relatorios += res["relatorios_processados"]
 
-    logger.info(f"ETL finalizado: {total_relatorios} relatórios processados, {total_registros} registros no banco.")
+    # Emissão do Relatório Consolidado de Auditoria & Telemetria
+    telemetria = None
+    if emit_telemetry:
+        telemetria = generate_etl_audit_summary()
+
     return {
         "status": "concluido",
         "relatorios_processados": total_relatorios,
-        "registros_salvos": total_registros
+        "registros_salvos": total_registros,
+        "chunks_executados": total_chunks,
+        "telemetria": telemetria
     }
 
 
@@ -209,28 +266,30 @@ def populate_cub_task(
     desoneracoes: Optional[List[str]] = None,
     force_download: bool = False
 ):
-    """Tarefa para carga progressiva de dados do CUB."""
-    logger.info(f"Iniciando populate_cub_task: {ano_inicio} a {ano_fim}, ufs={ufs}")
+    """Tarefa Celery orquestradora para carga progressiva do CUB."""
+    logger.info(f"Iniciando populate_cub_task (Celery): {ano_inicio} a {ano_fim}, ufs={ufs}")
     return run_etl_pipeline(
         ano_inicio=ano_inicio,
         ano_fim=ano_fim,
         ufs=ufs,
         desoneracoes=desoneracoes,
-        force_download=force_download
+        force_download=force_download,
+        emit_telemetry=True
     )
 
+
+# Registro de tarefas Celery (se instalado)
 if celery_app:
     populate_cub_task = celery_app.task(name="autocub.populate_cub_task")(populate_cub_task)
+    process_chunk_cub_task = celery_app.task(name="autocub.process_chunk_cub_task")(process_chunk_cub)
+    process_single_cub_task = celery_app.task(name="autocub.process_single_cub_task")(process_single_cub_report)
 else:
     populate_cub_task.delay = lambda *args, **kwargs: (_ for _ in ()).throw(
         RuntimeError("Celery não instalado neste ambiente.")
     )
 
 
-
-
 if __name__ == "__main__":
-    # Teste / CLI direto
     import argparse
     parser = argparse.ArgumentParser(description="AutoCUB ETL Pipeline")
     parser.add_argument("--ano-inicio", type=int, default=2026)
