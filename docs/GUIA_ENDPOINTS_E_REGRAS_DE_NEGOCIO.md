@@ -1,6 +1,6 @@
 # 📚 Guia Completo de Endpoints, Regras de Negócio e "Dores que Resolve" — AutoCUB API
 
-> **Versão da API:** `v1.0.0`  
+> **Versão da API:** `v1.1.0`  
 > **Norma Regulamentadora:** ABNT NBR 12.721:2006  
 > **Fundamento Jurídico:** Lei Federal nº 4.591/1964 (Arts. 53 a 55)  
 > **Ecossistema:** [Mundo AEC](https://mundoaec.com) / [AutoSINAPI](https://autosinapi.mundoaec.com)

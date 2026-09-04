@@ -32,7 +32,7 @@ class Settings(BaseSettings):
     API_PORT: int = 8002
     API_PREFIX: str = "/v1"
     API_TITLE: str = "AutoCUB API"
-    API_VERSION: str = "v1.0.0"
+    API_VERSION: str = "v1.1.0"
     API_DESCRIPTION: str = (
         "API RESTful para consulta e integração de dados estruturados do "
         "Custo Unitário Básico da Construção Civil (CUB/m² — NBR 12.721:2006). "
