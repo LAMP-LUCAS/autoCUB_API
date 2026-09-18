@@ -29,4 +29,18 @@ Entregável proposto: **`autocub/MCP-Catalog v1`**, autoridade única neste prod
 - [ ] Transporte, negociação, cancelamento e erros definidos e testados; catálogo versionado sem contagem presumida.
 - [ ] Release publica contrato, configuração suportada e evidências de compatibilidade; exposição é gate separado.
 
-Não houve validação runtime nesta revisão. Gaps estáticos não são exploits demonstrados nem evidência de invasão.
+## Adaptador local em desenvolvimento
+
+Pacote independente `autocub_mcp`, layout src/tools em dois tiers seguindo a referência Matryoshka. Contrato estático: revisão de produto `c08892b38f3035cbfe6a837a92eeb3f3285ee5c7`, routers montados em `/v1`; sem consulta ao OpenAPI runtime. Treze tools: as doze consultas solicitadas e `cub_calc_area` (POST `/v1/calc/area`, objeto ou lista). `/v1/calc/fatores` só possui GET: a tool POST solicitada é omitida. `/v1/cub/br` existe, mas não recebeu nome no catálogo solicitado e não é exposta implicitamente. Aliases panorama, impacto-desoneracao, ranking, historico e comparativo existem, embora ocultos no OpenAPI.
+
+Configuração exclusivamente por ambiente: `AUTOCUB_BASE_URL` usa a constante `DEFAULT_GATEWAY_BASE_URL` (`http://api-gateway-kong:8000`), contrato interno de serviço; `AUTOCUB_CACHE_URL` é opcional, sem fallback de infraestrutura. `AUTOCUB_CACHE_TTL=300`, `AUTOCUB_TIMEOUT=30`, `AUTOCUB_RETRIES=3` (total de tentativas). `AUTOCUB_MCP_PORT=8080`, `AUTOCUB_MCP_HOST=0.0.0.0`, `AUTOCUB_MCP_TRANSPORT=streamable-http` (também SSE e stdio). GET `/sse` é SSE legado; POST `/sse` é Streamable HTTP; `/messages/` recebe mensagens SSE. Não há override de TransportSecuritySettings.
+
+BYOK por chamada, sem chave global, sem leitura de dotenv. Chaves Redis usam `autocub:` + impressão SHA-256 truncada + argumentos canônicos. O cache-aside aceita callback confiável de autorização, executado antes da leitura; sem callback, não lê nem escreve cache e consulta o gateway em toda execução. As tools não instalam callback fictício: integração de `saas-gateway/MCP-Admission v1`, identidade/tenant/escopo, revogação e contabilização permanecem gates de exposição. Fingerprint não substitui admissão. Respostas REST são preservadas sem recalcular ou converter precisão monetária.
+
+Entrega inclui testes isolados e Dockerfiles; sem build Docker, deployment, credenciais ou alterações de infraestrutura. O responsável pela integração deve configurar URL/rotas autorizadas do gateway, cache dedicado se habilitado, admissão antes de cache, rede/ingress, limites e compatibilidade de transporte. Testes locais não são aprovação de catálogo nem validação runtime.
+
+### Evidências locais
+
+Em 2026-09-17: `pytest -q` — 61 testes aprovados; `ruff check .` e `mypy src` aprovados (9 módulos). Ambiente isolado Python 3.12, MCP SDK 1.30.0; instalação via `pip install --no-deps .` construiu wheel e confirmou `autocub-mcp = autocub_mcp:main`. Testes bloqueiam sockets externos, simulam HTTP/Redis e verificam handshake Streamable HTTP, descoberta de 13 tools e lifespan. SSE legado tem roteamento verificado, não sessão ponta a ponta. Dockerfiles usam Python 3.11, ainda não testado em container. `/health` local verifica liveness do processo no modo combinado, não readiness de gateway/Redis; o healthcheck Docker pressupõe esse modo. `Dockerfile.dev` instala fonte antes do editable; não configura hot reload.
+
+Nenhuma validação de API live, admissão operacional, build Docker ou deployment foi executada. Cache não serve hits nas tools até integração confiável de admissão; erros de autorização não são cacheados. `BLE001` é excetuado apenas em cache.py para fronteiras de degradação e negação segura. Schemas de resposta são preservados como JSON REST, não revalidados contra DTOs duplicados. Validações CUB de UF/período permanecem no produto REST; segmentos de path inseguros são rejeitados localmente.
