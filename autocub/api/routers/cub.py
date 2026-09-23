@@ -31,6 +31,17 @@ from autocub.processor.schemas import (
 router = APIRouter(prefix="/cub", tags=["CUB / Custo Unitário Básico"])
 
 
+@router.get("/health", tags=["Health"], include_in_schema=False)
+def cub_health():
+    """Health canônico do produto CUB.
+
+    Declarado no PRÓPRIO router (`/v1/cub/health`) e ANTES do catch-all
+    `GET /cub/{uf}` — em FastAPI/Starlette a primeira rota que casa vence,
+    então "health" jamais é interpretado como uma UF.
+    """
+    return {"status": "healthy", "service": "autocub"}
+
+
 # ==============================================================================
 # 1. CUB BRASIL PONDERADO OFICIAL (CBIC / Quadro I e II)
 # ==============================================================================

@@ -108,6 +108,10 @@ def health_check():
     """
     Health check para balanceadores de carga, Kubernetes e Kong Gateway.
     Verifica a conectividade ativa com a infraestrutura.
+
+    Contrato canônico do ecossistema Mundoaec: `GET /api/v1/cub/health`
+    (registrado no router CUB, antes do catch-all `/{uf}`). Mantém `/health`
+    e `/v1/health` para probes de container/CI direto no upstream.
     """
     from sqlalchemy import text
     db_status = "healthy"
@@ -123,5 +127,5 @@ def health_check():
         "service": settings.API_TITLE,
         "version": settings.API_VERSION,
         "environment": settings.ENVIRONMENT,
-        "database": db_status
+        "database": db_status,
     }
