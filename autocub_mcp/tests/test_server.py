@@ -28,8 +28,8 @@ async def test_registration():
     }
     assert len(tools) == 13
     for tool in tools:
-        assert "api_key" in tool.inputSchema["properties"]
-        assert "api_key" not in tool.inputSchema.get("required", [])
+        assert "api_key" not in tool.inputSchema.get("properties", {})
+        assert "ctx" not in tool.inputSchema.get("properties", {})
     assert server.settings.port == 8080
 
 

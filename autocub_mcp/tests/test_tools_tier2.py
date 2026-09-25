@@ -1,8 +1,15 @@
+from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
+from mcp.server.fastmcp import Context
 
 from autocub_mcp.tools import tier_2
+
+
+def context_with_key(key: str):
+    request = SimpleNamespace(headers={"x-api-key": key})
+    return Context(request_context=SimpleNamespace(request=request))
 
 
 @pytest.mark.parametrize(
@@ -30,10 +37,10 @@ async def test_calc_area_list_and_cache_partition(monkeypatch):
     monkeypatch.setattr(tier_2, "get_client", lambda: client)
     monkeypatch.setattr(tier_2, "get_cache", lambda: cache)
     payload = [{"ambiente": "Sala", "area_real_m2": "10.25", "fator_ponderacao": "0.50"}]
-    await tier_2.cub_calc_area(payload=payload, api_key="fixture-key")
+    await tier_2.cub_calc_area(payload=payload, ctx=context_with_key("fixture-key"))
     client.post.assert_awaited_once_with("/v1/calc/area", json=payload, api_key="fixture-key")
     first = cache.get_or_fetch.call_args.args[0]
-    await tier_2.cub_calc_area(payload=payload, api_key="other-key")
+    await tier_2.cub_calc_area(payload=payload, ctx=context_with_key("other-key"))
     assert first != cache.get_or_fetch.call_args.args[0]
     assert "fixture-key" not in first
 
@@ -51,6 +58,6 @@ async def test_calc_area_posts_exact_body(monkeypatch):
     client.post.return_value = response
     monkeypatch.setattr(tier_2, "get_client", lambda: client)
     payload = {"itens": [{"ambiente": "Apartamento", "area_real_m2": "100.00"}]}
-    result = await tier_2.cub_calc_area(payload=payload, api_key="fixture-key")
+    result = await tier_2.cub_calc_area(payload=payload, ctx=context_with_key("fixture-key"))
     assert result == response
     client.post.assert_awaited_once_with("/v1/calc/area", json=payload, api_key="fixture-key")

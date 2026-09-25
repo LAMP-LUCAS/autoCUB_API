@@ -2,7 +2,9 @@ from decimal import Decimal
 from typing import Annotated
 
 from pydantic import BaseModel, Field, TypeAdapter, validate_call
+from mcp.server.fastmcp import Context
 
+from autocub_mcp.auth import resolve_api_key
 from autocub_mcp.cache import cache_key
 from autocub_mcp.tools.tier_1 import get_cache, get_client
 
@@ -24,7 +26,8 @@ AreaPayload = CalculoAreaRequest | Annotated[list[AreaItemInput], Field(min_leng
 
 
 @validate_call
-async def cub_calc_area(payload: AreaPayload, api_key: str | None = None) -> dict | list:
+async def cub_calc_area(payload: AreaPayload, ctx: Context | None = None) -> dict | list:
+    api_key = resolve_api_key(ctx)
     adapter: TypeAdapter[AreaPayload] = TypeAdapter(AreaPayload)
     body = adapter.dump_python(payload, mode="json", exclude_unset=True)
     key = cache_key("POST:/v1/calc/area", {"body": body}, api_key=api_key)

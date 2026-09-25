@@ -1,7 +1,9 @@
 from urllib.parse import quote
 
 from pydantic import validate_call
+from mcp.server.fastmcp import Context
 
+from autocub_mcp.auth import resolve_api_key
 from autocub_mcp.cache import CacheManager, cache_key
 from autocub_mcp.client import APIClient
 
@@ -41,7 +43,8 @@ def segment(value: str) -> str:
     return quote(value.upper(), safe="")
 
 
-async def _get(path: str, params: dict, api_key: str | None) -> dict | list:
+async def _get(path: str, params: dict, ctx: Context | None) -> dict | list:
+    api_key = resolve_api_key(ctx)
     params = {k: v for k, v in params.items() if v is not None}
     key = cache_key(path, params, api_key=api_key)
     return await get_cache().get_or_fetch(
@@ -56,21 +59,21 @@ async def cub_get_uf(
     mes: int | None = None,
     desoneracao: str = "SEM_DESONERACAO",
     sinduscon_id: int | None = None,
-    api_key: str | None = None,
+    ctx: Context | None = None,
 ) -> dict | list:
     return await _get(
         f"/v1/cub/{segment(uf)}",
         {"ano": ano, "mes": mes, "desoneracao": desoneracao, "sinduscon_id": sinduscon_id},
-        api_key,
+        ctx,
     )
 
 
 @validate_call
 async def cub_latest(
-    uf: str | None = None, desoneracao: str = "SEM_DESONERACAO", api_key: str | None = None
+    uf: str | None = None, desoneracao: str = "SEM_DESONERACAO", ctx: Context | None = None
 ) -> dict | list:
     return await _get(
-        "/v1/cub/latest", {"uf": uf.upper() if uf else uf, "desoneracao": desoneracao}, api_key
+        "/v1/cub/latest", {"uf": uf.upper() if uf else uf, "desoneracao": desoneracao}, ctx
     )
 
 
@@ -81,12 +84,12 @@ async def cub_panorama(
     mes: int | None = None,
     desoneracao: str = "SEM_DESONERACAO",
     sinduscon_id: int | None = None,
-    api_key: str | None = None,
+    ctx: Context | None = None,
 ) -> dict | list:
     return await _get(
         f"/v1/cub/{segment(uf)}/panorama",
         {"ano": ano, "mes": mes, "desoneracao": desoneracao, "sinduscon_id": sinduscon_id},
-        api_key,
+        ctx,
     )
 
 
@@ -97,12 +100,12 @@ async def cub_dash(
     mes: int | None = None,
     desoneracao: str = "SEM_DESONERACAO",
     sinduscon_id: int | None = None,
-    api_key: str | None = None,
+    ctx: Context | None = None,
 ) -> dict | list:
     return await _get(
         f"/v1/cub/{segment(uf)}/dash",
         {"ano": ano, "mes": mes, "desoneracao": desoneracao, "sinduscon_id": sinduscon_id},
-        api_key,
+        ctx,
     )
 
 
@@ -112,12 +115,12 @@ async def cub_impacto_desoneracao(
     ano: int | None = None,
     mes: int | None = None,
     sinduscon_id: int | None = None,
-    api_key: str | None = None,
+    ctx: Context | None = None,
 ) -> dict | list:
     return await _get(
         f"/v1/cub/{segment(uf)}/impacto-desoneracao",
         {"ano": ano, "mes": mes, "sinduscon_id": sinduscon_id},
-        api_key,
+        ctx,
     )
 
 
@@ -127,12 +130,12 @@ async def cub_deson(
     ano: int | None = None,
     mes: int | None = None,
     sinduscon_id: int | None = None,
-    api_key: str | None = None,
+    ctx: Context | None = None,
 ) -> dict | list:
     return await _get(
         f"/v1/cub/{segment(uf)}/deson",
         {"ano": ano, "mes": mes, "sinduscon_id": sinduscon_id},
-        api_key,
+        ctx,
     )
 
 
@@ -142,7 +145,7 @@ async def cub_ranking(
     ano: int | None = None,
     mes: int | None = None,
     desoneracao: str = "SEM_DESONERACAO",
-    api_key: str | None = None,
+    ctx: Context | None = None,
 ) -> dict | list:
     return await _get(
         "/v1/cub/ranking",
@@ -152,7 +155,7 @@ async def cub_ranking(
             "mes": mes,
             "desoneracao": desoneracao,
         },
-        api_key,
+        ctx,
     )
 
 
@@ -164,7 +167,7 @@ async def cub_historico(
     ano_fim: int | None = None,
     desoneracao: str = "SEM_DESONERACAO",
     sinduscon_id: int | None = None,
-    api_key: str | None = None,
+    ctx: Context | None = None,
 ) -> dict | list:
     return await _get(
         f"/v1/cub/{segment(uf)}/historico/{segment(codigo_padrao)}",
@@ -174,7 +177,7 @@ async def cub_historico(
             "desoneracao": desoneracao,
             "sinduscon_id": sinduscon_id,
         },
-        api_key,
+        ctx,
     )
 
 
@@ -185,7 +188,7 @@ async def cub_comparativo(
     ano: int | None = None,
     mes: int | None = None,
     desoneracao: str = "SEM_DESONERACAO",
-    api_key: str | None = None,
+    ctx: Context | None = None,
 ) -> dict | list:
     return await _get(
         "/v1/cub/comparativo",
@@ -196,16 +199,16 @@ async def cub_comparativo(
             "mes": mes,
             "desoneracao": desoneracao,
         },
-        api_key,
+        ctx,
     )
 
 
 @validate_call
 async def cub_padroes_list(
-    categoria: str | None = None, padrao_acabamento: str | None = None, api_key: str | None = None
+    categoria: str | None = None, padrao_acabamento: str | None = None, ctx: Context | None = None
 ) -> dict | list:
     return await _get(
-        "/v1/padroes", {"categoria": categoria, "padrao_acabamento": padrao_acabamento}, api_key
+        "/v1/padroes", {"categoria": categoria, "padrao_acabamento": padrao_acabamento}, ctx
     )
 
 
@@ -214,13 +217,13 @@ async def cub_sinduscons_list(
     uf: str | None = None,
     regiao: str | None = None,
     ativo_apenas: bool = True,
-    api_key: str | None = None,
+    ctx: Context | None = None,
 ) -> dict | list:
     return await _get(
-        "/v1/sinduscons", {"uf": uf, "regiao": regiao, "ativo_apenas": ativo_apenas}, api_key
+        "/v1/sinduscons", {"uf": uf, "regiao": regiao, "ativo_apenas": ativo_apenas}, ctx
     )
 
 
 @validate_call
-async def cub_health(api_key: str | None = None) -> dict | list:
-    return await _get("/v1/health", {}, api_key)
+async def cub_health(ctx: Context | None = None) -> dict | list:
+    return await _get("/v1/health", {}, ctx)

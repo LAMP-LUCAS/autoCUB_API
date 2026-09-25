@@ -1,8 +1,15 @@
+from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
+from mcp.server.fastmcp import Context
 
 from autocub_mcp.tools import tier_1
+
+
+def context_with_key(key: str):
+    request = SimpleNamespace(headers={"x-api-key": key})
+    return Context(request_context=SimpleNamespace(request=request))
 
 CASES = [
     (
@@ -55,9 +62,9 @@ async def test_route_and_auth_partition(monkeypatch, name, arguments, path, para
     monkeypatch.setattr(tier_1, "get_client", lambda: client)
     monkeypatch.setattr(tier_1, "get_cache", lambda: cache)
     tool = getattr(tier_1, name)
-    result = await tool(**arguments, api_key="fixture-key")
+    result = await tool(**arguments, ctx=context_with_key("fixture-key"))
     assert result == client.get.return_value
     client.get.assert_awaited_once_with(path, params=params or None, api_key="fixture-key")
     first_key = cache.get_or_fetch.call_args.args[0]
-    await tool(**arguments, api_key="another-key")
+    await tool(**arguments, ctx=context_with_key("another-key"))
     assert cache.get_or_fetch.call_args.args[0] != first_key
