@@ -110,6 +110,7 @@ class CubHistoricoResponse(BaseModel):
 
 class ComparativoItem(BaseModel):
     uf: str
+    sinduscon_id: int
     sinduscon_nome: str
     regiao: Optional[str] = None
     valor_m2: Decimal
@@ -196,6 +197,7 @@ class ImpactoDesoneracaoResponse(BaseModel):
 class RankingItem(BaseModel):
     posicao: int
     uf: str
+    sinduscon_id: int
     sinduscon_nome: str
     regiao: str
     valor_m2: Decimal
@@ -221,6 +223,7 @@ class EtlTriggerResponse(BaseModel):
 
 class CubBrasilItem(BaseModel):
     uf: str
+    sinduscon_id: int
     sinduscon_nome: str
     regiao: str
     projeto_representativo: str

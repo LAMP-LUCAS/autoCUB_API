@@ -4,8 +4,9 @@ from fastapi import APIRouter, Depends, Body, HTTPException, status
 from sqlalchemy.orm import Session
 from sqlalchemy import desc
 
+from autocub.api.resolvers import resolver_sinduscon
 from autocub.database.connection import get_db
-from autocub.database.models import CubMensal, Sinduscon
+from autocub.database.models import CubMensal
 from autocub.processor.schemas import (
     AreaItemInput,
     AreaItemOutput,
@@ -198,7 +199,8 @@ def calcular_area_equivalente(
     # Resolução automática de CUB se UF e padrão forem fornecidos sem CUB explícito
     cub_aplicado = cub_m2
     if cub_aplicado is None and uf and codigo_padrao:
-        sind = db.query(Sinduscon).filter(Sinduscon.uf == uf.upper(), Sinduscon.ativo == True).first()
+        # Mesmo default determinístico dos demais endpoints (§5.1)
+        sind = resolver_sinduscon(db, uf)
         if sind:
             cotacao = (
                 db.query(CubMensal)

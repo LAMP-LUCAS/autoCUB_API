@@ -7,6 +7,11 @@ from sqlalchemy import desc, func
 
 from autocub.database.connection import get_db
 from autocub.database.models import CubMensal, Sinduscon, PadraoProjeto, PesoCubBrasil
+from autocub.api.resolvers import (
+    chave_preferencia,
+    max_data_por_sinduscon,
+    resolver_sinduscon,
+)
 from autocub.core.cache import cache_response
 from autocub.processor.schemas import (
     CubCotacaoResponse,
@@ -93,7 +98,7 @@ def get_cub_brasil(
     regioes_denominador: Dict[str, Decimal] = {}
 
     for p in pesos:
-        sind = db.query(Sinduscon).filter(Sinduscon.uf == p.uf, Sinduscon.ativo == True).first()
+        sind = resolver_sinduscon(db, p.uf)
         if not sind:
             continue
 
@@ -134,7 +139,8 @@ def get_cub_brasil(
             itens_brasil.append(
                 CubBrasilItem(
                     uf=p.uf,
-                    sinduscon_nome=p.sinduscon_nome,
+                    sinduscon_id=sind.id,
+                    sinduscon_nome=sind.nome,
                     regiao=p.regiao,
                     projeto_representativo=cub.codigo_padrao,
                     peso_relativo=peso,
@@ -273,11 +279,7 @@ def get_cub_dash(
     uf_upper = uf.upper()
     deson_slug = "COM_DESONERACAO" if "com" in desoneracao.lower() else "SEM_DESONERACAO"
 
-    sind_query = db.query(Sinduscon).filter(Sinduscon.uf == uf_upper, Sinduscon.ativo == True)
-    if sinduscon_id:
-        sind_query = sind_query.filter(Sinduscon.id == sinduscon_id)
-
-    sind = sind_query.first()
+    sind = resolver_sinduscon(db, uf_upper, sinduscon_id)
     if not sind:
         raise HTTPException(status_code=404, detail=f"Sinduscon não encontrado para a UF '{uf_upper}'.")
 
@@ -448,7 +450,8 @@ def get_impacto_desoneracao(
     """Cruzamento pré-calculado das séries COM e SEM desoneração."""
 
     uf_upper = uf.upper()
-    sind = db.query(Sinduscon).filter(Sinduscon.uf == uf_upper, Sinduscon.ativo == True).first()
+    # `sinduscon_id` era aceito e IGNORADO aqui — agora é honrado (§5.1)
+    sind = resolver_sinduscon(db, uf_upper, sinduscon_id)
     if not sind:
         raise HTTPException(status_code=404, detail=f"Sinduscon não encontrado para {uf_upper}.")
 
@@ -585,16 +588,34 @@ def get_cub_rank(
     if not results:
         raise HTTPException(status_code=404, detail=f"Sem dados para {codigo_padrao_norm} em {target_date}.")
 
-    valores = [c.valor_m2 for c, s in results]
+    # §5.1: UMA linha por UF — escolhe-se o sinduscon default do resolver
+    # (ativo > dado mais recente > menor id), que é exatamente o resolvido
+    # pelo histórico/panorama/desão para a mesma UF. Além de tornar o
+    # ranking determinístico, elimina a duplicação de UF (§5.3) e faz a
+    # média nacional ser calculada por ESTADO, não por sinduscon.
+    maxes = max_data_por_sinduscon(db)
+    melhor_por_uf: Dict[str, tuple] = {}
+    for par in results:
+        _, sind = par
+        k = chave_preferencia(sind.id, sind.ativo, maxes)
+        atual = melhor_por_uf.get(sind.uf)
+        if atual is None or k < atual[0]:
+            melhor_por_uf[sind.uf] = (k, par)
+
+    escolhidos = [par for _, par in melhor_por_uf.values()]
+    escolhidos.sort(key=lambda par: par[0].valor_m2, reverse=True)
+
+    valores = [c.valor_m2 for c, s in escolhidos]
     media_nac = round(sum(valores) / len(valores), 2)
 
     ranking_items = []
-    for idx, (cub, sind) in enumerate(results, start=1):
+    for idx, (cub, sind) in enumerate(escolhidos, start=1):
         desvio = round(((cub.valor_m2 - media_nac) / media_nac) * 100, 2)
         ranking_items.append(
             RankingItem(
                 posicao=idx,
                 uf=sind.uf,
+                sinduscon_id=sind.id,
                 sinduscon_nome=sind.nome,
                 regiao=sind.regiao,
                 valor_m2=cub.valor_m2,
@@ -646,11 +667,7 @@ def get_historico_padrao(
     codigo_padrao_norm = codigo_padrao.upper()
     deson_slug = "COM_DESONERACAO" if "com" in desoneracao.lower() else "SEM_DESONERACAO"
 
-    sind_query = db.query(Sinduscon).filter(Sinduscon.uf == uf_upper, Sinduscon.ativo == True)
-    if sinduscon_id:
-        sind_query = sind_query.filter(Sinduscon.id == sinduscon_id)
-
-    sind = sind_query.first()
+    sind = resolver_sinduscon(db, uf_upper, sinduscon_id)
     if not sind:
         raise HTTPException(status_code=404, detail=f"Sinduscon não encontrado para {uf_upper}.")
 
@@ -776,16 +793,31 @@ def get_comparativo_regional(
             detail=f"Nenhum dado encontrado para o padrão {codigo_padrao_norm} nas UFs: {lista_ufs}."
         )
 
-    valores = [c.valor_m2 for c, s in results]
+    # §5.1: UMA linha por UF — mesmo critério determinístico do ranking e
+    # do histórico (ver autocub.api.resolvers).
+    maxes = max_data_por_sinduscon(db)
+    melhor_por_uf: Dict[str, tuple] = {}
+    for par in results:
+        _, sind = par
+        k = chave_preferencia(sind.id, sind.ativo, maxes)
+        atual = melhor_por_uf.get(sind.uf)
+        if atual is None or k < atual[0]:
+            melhor_por_uf[sind.uf] = (k, par)
+
+    escolhidos = [par for _, par in melhor_por_uf.values()]
+    escolhidos.sort(key=lambda par: par[0].valor_m2, reverse=True)
+
+    valores = [c.valor_m2 for c, s in escolhidos]
     media_grp = round(sum(valores) / len(valores), 2) if valores else Decimal("0.00")
 
     items = []
-    for cub, sind in results:
+    for cub, sind in escolhidos:
         diff = cub.valor_m2 - media_grp
         diff_pct = round((diff / media_grp) * 100, 2) if media_grp > 0 else Decimal("0.00")
         items.append(
             ComparativoItem(
                 uf=sind.uf,
+                sinduscon_id=sind.id,
                 sinduscon_nome=sind.nome,
                 regiao=sind.regiao,
                 valor_m2=cub.valor_m2,
