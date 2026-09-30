@@ -328,6 +328,23 @@ class AreaEquivalenteResponse(BaseModel):
     fator_equivalente_medio: Decimal = Field(..., description="Fator médio de ponderação global da obra (Área Equivalente / Área Real).")
     cub_m2_aplicado: Optional[Decimal] = Field(None, description="Valor do CUB/m² utilizado no cálculo (se informado ou consultado).")
     custo_estimado_total: Optional[Decimal] = Field(None, description="Estimativa de Custo Global (R$) = Área Equivalente Total × CUB/m².")
+    erro: Optional[str] = Field(
+        None,
+        description="STORY-MCP-007/C-04: código do que impediu o orçamento "
+        "(ex.: `CUB_INDISPONIVEL_PARA_UF`). Nunca haverá `custo_estimado_total: null` "
+        "sem este campo — orçamento em branco sem aviso é pior que erro.",
+        examples=["CUB_INDISPONIVEL_PARA_UF", "CUB_NAO_INFORMADO"],
+    )
+    motivo: Optional[str] = Field(
+        None,
+        description="Explicação legível do erro (qual UF, o que foi pedido, o que falta).",
+    )
+    ufs_com_cub_mais_proximas: Optional[List[str]] = Field(
+        None,
+        description="UFs vizinhas (ou as mais próximas em cobertura) que possuem CUB "
+        "publicado — sugestão de fallback para o agente seguir em vez de devolver branco.",
+        examples=[["MG", "RJ"]],
+    )
     itens: List[AreaItemOutput] = Field(..., description="Detalhamento individual de cada ambiente.")
     nota_normativa: str = Field(
         "Conforme a ABNT NBR 12.721:2006 (Quadro II), a multiplicação do CUB/m² deve ser efetuada sempre sobre a Área Equivalente Total, e jamais sobre a Área Real física. O CUB não contempla fundações especiais, elevadores, urbanização e BDI.",

@@ -113,6 +113,38 @@ def listar_fatores_normativos():
     return FatoresNormativosResponse(fatores=itens)
 
 
+# Vizinhança por(region/UF) para sugerir fallback quando a UF não tem CUB.
+# Prioriza UFs da mesma região (o CUB segue a convenção regional do CBIC) e
+# completa com as de maior cobertura — o agente precisa de ALGUMA suggesting
+# acionável, não de uma lista vazia.
+_UF_POR_REGIAO = {
+    "AC": "NORTE", "AM": "NORTE", "AP": "NORTE", "PA": "NORTE", "RO": "NORTE",
+    "RR": "NORTE", "TO": "NORTE",
+    "AL": "NORDESTE", "BA": "NORDESTE", "CE": "NORDESTE", "MA": "NORDESTE",
+    "PB": "NORDESTE", "PE": "NORDESTE", "PI": "NORDESTE", "RN": "NORDESTE",
+    "SE": "NORDESTE",
+    "DF": "CENTROOESTE", "GO": "CENTROOESTE", "MT": "CENTROOESTE", "MS": "CENTROOESTE",
+    "ES": "SUDESTE", "MG": "SUDESTE", "RJ": "SUDESTE", "SP": "SUDESTE",
+    "PR": "SUL", "RS": "SUL", "SC": "SUL",
+}
+
+
+def _ufs_com_cub(db: Session, uf: str, limite: int = 5) -> List[str]:
+    """UFs com CUB publicado, priorizando a mesma região da UF pedida."""
+    from autocub.database.models import Sinduscon
+
+    with_dado = [
+        s.uf for s in db.query(Sinduscon.uf).join(
+            CubMensal, CubMensal.sinduscon_id == Sinduscon.id
+        ).distinct().all()
+    ]
+    uf = (uf or "").upper()
+    regiao = _UF_POR_REGIAO.get(uf)
+    mesma_regiao = [u for u in with_dado if _UF_POR_REGIAO.get(u) == regiao and u != uf]
+    outras = sorted(u for u in with_dado if u not in mesma_regiao and u != uf)
+    return sorted(set(mesma_regiao)) + outras[: limite]
+
+
 @router.post(
     "/area",
     response_model=AreaEquivalenteResponse,
@@ -126,13 +158,15 @@ def listar_fatores_normativos():
         "2. A API aplica os fatores de equivalência canônicos (ou os customizados informados).\n"
         "3. Se você informar `cub_m2` ou a combinação `uf` + `codigo_padrao`, a API calcula automaticamente o "
         "**Custo Global Estimado da Obra** (`Área Equivalente × CUB/m²`).\n\n"
-        "**Exemplo de entrada aceito:** Objeto `CalculoAreaRequest` completo ou lista direta `[AreaItemInput]`."
+        "**STORY-MCP-007/C-04:** `payload` é **sempre objeto**. Sem CUB resolvível a resposta "
+        "traz `erro` + `motivo` + `ufs_com_cub_mais_proximas` — nunca `custo_estimado_total: null` mudo."
     )
 )
 def calcular_area_equivalente(
-    payload: Union[CalculoAreaRequest, List[AreaItemInput]] = Body(
+    payload: CalculoAreaRequest = Body(
         ...,
-        description="Parâmetros de cálculo. Pode ser o objeto completo CalculoAreaRequest ou uma lista direta de itens.",
+        description="Parâmetros de cálculo (objeto `CalculoAreaRequest`). A forma-lista "
+        "foi removida no STORY-MCP-007/C-04: ela perdia a UF e devolvia custo null sem aviso.",
         examples=[
             {
                 "cub_m2": 2623.20,
@@ -153,16 +187,10 @@ def calcular_area_equivalente(
     Calcula a Área Equivalente de Construção (Quadro II da ABNT NBR 12.721)
     e opcionalmente o Custo Global Estimado da Obra.
     """
-    if isinstance(payload, list):
-        itens = payload
-        cub_m2 = None
-        uf = None
-        codigo_padrao = None
-    else:
-        itens = payload.itens
-        cub_m2 = payload.cub_m2
-        uf = payload.uf
-        codigo_padrao = payload.codigo_padrao
+    itens = payload.itens
+    cub_m2 = payload.cub_m2
+    uf = payload.uf
+    codigo_padrao = payload.codigo_padrao
 
     if not itens:
         raise HTTPException(
@@ -196,23 +224,58 @@ def calcular_area_equivalente(
 
     fator_medio = round(total_equiv / total_real, 4) if total_real > 0 else Decimal("1.0000")
 
-    # Resolução automática de CUB se UF e padrão forem fornecidos sem CUB explícito
+    # Resolução automática do CUB (STORY-MCP-007/C-04): antes exigia `uf` E
+    # `codigo_padrao`; o agente que só sabia a UF recebia `null` sem explicação.
+    # Agora `uf` sozinha resolve pela cotação mais recente da UF.
     cub_aplicado = cub_m2
-    if cub_aplicado is None and uf and codigo_padrao:
-        # Mesmo default determinístico dos demais endpoints (§5.1)
+    motivo_erro = None
+    erro = None
+    alternativas = None
+    if cub_aplicado is None and uf:
         sind = resolver_sinduscon(db, uf)
+        filtros = [CubMensal.sinduscon_id == sind.id] if sind else []
         if sind:
+            if codigo_padrao:
+                filtros.append(CubMensal.codigo_padrao == codigo_padrao.upper())
             cotacao = (
                 db.query(CubMensal)
-                .filter(
-                    CubMensal.sinduscon_id == sind.id,
-                    CubMensal.codigo_padrao == codigo_padrao.upper()
-                )
+                .filter(*filtros)
                 .order_by(desc(CubMensal.data_referencia))
                 .first()
             )
             if cotacao:
                 cub_aplicado = cotacao.valor_m2
+            else:
+                erro = "CUB_INDISPONIVEL_PARA_UF"
+                linhas_padrao = (
+                    db.query(CubMensal.codigo_padrao)
+                    .filter(CubMensal.sinduscon_id == sind.id)
+                    .distinct()
+                    .limit(10)
+                    .all()
+                )
+                padroes = sorted({linha[0] for linha in linhas_padrao if linha[0]})
+                motivo_erro = (
+                    f"A UF {uf.upper()} tem sindicato cadastrado, mas nenhuma cotação"
+                    + (f" para o padrão {codigo_padrao.upper()}" if codigo_padrao else "")
+                    + ". Padrões com dado na UF: "
+                    + (", ".join(patroes) if padroes else "nenhum") + "."
+                )
+        else:
+            erro = "CUB_INDISPONIVEL_PARA_UF"
+            motivo_erro = (
+                f"A UF {uf.upper()} não possui sindicato com CUB cadastrado "
+                "(limitação de cobertura — ver LIM-38)."
+            )
+        if erro:
+            alternativas = _ufs_com_cub(db, uf)
+
+    if cub_aplicado is None and erro is None:
+        erro = "CUB_NAO_INFORMADO"
+        motivo_erro = (
+            "Informe `cub_m2` ou `uf` para estimar o custo — sem um dos dois a "
+            "Área Equivalente é calculada, mas o orçamento não."
+        )
 
     custo_total = round(total_equiv * cub_aplicado, 2) if cub_aplicado is not None else None
 
@@ -222,5 +285,8 @@ def calcular_area_equivalente(
         fator_equivalente_medio=fator_medio,
         cub_m2_aplicado=cub_aplicado,
         custo_estimado_total=custo_total,
+        erro=erro,
+        motivo=motivo_erro,
+        ufs_com_cub_mais_proximas=alternativas,
         itens=outputs
     )

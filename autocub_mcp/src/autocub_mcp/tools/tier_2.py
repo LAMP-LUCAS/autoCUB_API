@@ -1,5 +1,4 @@
 from decimal import Decimal
-from typing import Annotated
 
 from pydantic import BaseModel, Field, TypeAdapter, validate_call
 from mcp.server.fastmcp import Context
@@ -22,7 +21,10 @@ class CalculoAreaRequest(BaseModel):
     codigo_padrao: str | None = None
 
 
-AreaPayload = CalculoAreaRequest | Annotated[list[AreaItemInput], Field(min_length=1)]
+# STORY-MCP-007/C-04: `payload` é SEMPRE objeto. A união com `list[AreaItemInput]`
+# aceitava a forma-lista, que perde `uf`/`cub_m2` — o cálculo voltava com
+# `custo_estimado_total: null` e nenhuma explicação (a API agora responde 422).
+AreaPayload = CalculoAreaRequest
 
 
 @validate_call

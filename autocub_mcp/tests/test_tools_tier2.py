@@ -36,13 +36,28 @@ async def test_calc_area_list_and_cache_partition(monkeypatch):
     cache.get_or_fetch.side_effect = fetch
     monkeypatch.setattr(tier_2, "get_client", lambda: client)
     monkeypatch.setattr(tier_2, "get_cache", lambda: cache)
-    payload = [{"ambiente": "Sala", "area_real_m2": "10.25", "fator_ponderacao": "0.50"}]
+    # STORY-MCP-007/C-04: payload é sempre OBJETO (a forma-lista foi removida —
+    # perdia a UF e devolvia custo null sem aviso).
+    payload = {"itens": [{"ambiente": "Sala", "area_real_m2": "10.25", "fator_ponderacao": "0.50"}]}
     await tier_2.cub_calc_area(payload=payload, ctx=context_with_key("fixture-key"))
     client.post.assert_awaited_once_with("/v1/calc/area", json=payload, api_key="fixture-key")
     first = cache.get_or_fetch.call_args.args[0]
     await tier_2.cub_calc_area(payload=payload, ctx=context_with_key("other-key"))
     assert first != cache.get_or_fetch.call_args.args[0]
     assert "fixture-key" not in first
+
+
+@pytest.mark.asyncio
+async def test_calc_area_rejeita_forma_lista(monkeypatch):
+    """C-04: a lista solta não é mais aceita (perdia a UF)."""
+    import pydantic
+
+    monkeypatch.setattr(tier_2, "get_client", lambda: AsyncMock())
+    with pytest.raises(pydantic.ValidationError):
+        await tier_2.cub_calc_area(
+            payload=[{"ambiente": "Sala", "area_real_m2": "10.25"}],
+            ctx=context_with_key("fixture-key"),
+        )
 
 
 @pytest.mark.asyncio

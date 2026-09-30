@@ -1,11 +1,12 @@
 from urllib.parse import quote
 
-from pydantic import validate_call
 from mcp.server.fastmcp import Context
+from pydantic import validate_call
 
+from autocub_mcp import envelope
 from autocub_mcp.auth import resolve_api_key
 from autocub_mcp.cache import CacheManager, cache_key
-from autocub_mcp.client import APIClient, NotFoundError
+from autocub_mcp.client import APIClient, APIError, NotFoundError
 from autocub_mcp.lim38 import NOTA_LIM38
 
 _client: APIClient | None = None
@@ -48,9 +49,15 @@ async def _get(path: str, params: dict, ctx: Context | None) -> dict | list:
     api_key = resolve_api_key(ctx)
     params = {k: v for k, v in params.items() if v is not None}
     key = cache_key(path, params, api_key=api_key)
-    return await get_cache().get_or_fetch(
+    resultado = await get_cache().get_or_fetch(
         key, lambda: get_client().get(path, params=params or None, api_key=api_key)
     )
+    # STORY-MCP-007/C-01: lista vazia virava `content: []` (retorno em branco
+    # com isError=false). Agora é envelope explícito — o agente lê "sem dado"
+    # em vez de nada (ADR 010). Resultado COM linhas segue intacto.
+    if envelope.e_vazio(resultado):
+        return envelope.vazio(recurso=path, parametros=params or None)
+    return resultado
 
 
 @validate_call
@@ -70,7 +77,7 @@ async def cub_get_uf(
     do gate cobre a sinalização, nunca a cobertura.
     """
     try:
-        return await _get(
+        out = await _get(
             f"/v1/cub/{segment(uf)}",
             {"ano": ano, "mes": mes, "desoneracao": desoneracao, "sinduscon_id": sinduscon_id},
             ctx,
@@ -86,6 +93,40 @@ async def cub_get_uf(
                 "motivo": str(exc),
             }
         raise
+
+    if envelope.e_vazio(out) or (isinstance(out, dict) and out.get("sem_dados")):
+        # C-01 com contexto útil: quando o PERÍODO pedido não tem cotação, o
+        # agente precisa saber até quando a UF tem dado (ex.: AC pede 2026-07 e
+        # a última referência é 2026-03 — vigência vencida é alerta, não erro).
+        ultima = await _ultima_referencia(uf, desoneracao, sinduscon_id, ctx)
+        return envelope.vazio(
+            uf=uf.upper(),
+            ano=ano,
+            mes=mes,
+            ultima_referencia_disponivel=ultima,
+            motivo=("SEM_COTACAO_PARA_O_PERIODO" if ultima else envelope.MOTIVO_SEM_COTACAO),
+        )
+    return out
+
+
+async def _ultima_referencia(
+    uf: str, desoneracao: str, sinduscon_id: int | None, ctx: Context | None
+) -> str | None:
+    """Última competência com cotação da UF (ou None se nunca houve)."""
+    try:
+        sem_periodo = await get_client().get(
+            f"/v1/cub/{segment(uf)}",
+            params={k: v for k, v in
+                    {"desoneracao": desoneracao, "sinduscon_id": sinduscon_id}.items()
+                    if v is not None} or None,
+            api_key=resolve_api_key(ctx),
+        )
+    except APIError:
+        return None
+    linhas = sem_periodo if isinstance(sem_periodo, list) else []
+    refs = [str(x.get("data_referencia")) for x in linhas
+            if isinstance(x, dict) and x.get("data_referencia")]
+    return max(refs) if refs else None
 
 
 @validate_call
