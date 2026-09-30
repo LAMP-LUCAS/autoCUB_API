@@ -10,7 +10,7 @@ class Settings(BaseSettings):
         extra="ignore"
     )
 
-    ENVIRONMENT: str = "development"
+    STAGE: str = "development"
     LOG_LEVEL: str = "INFO"
 
     # PostgreSQL Database

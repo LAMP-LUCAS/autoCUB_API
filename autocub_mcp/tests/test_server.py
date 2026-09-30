@@ -41,6 +41,25 @@ def test_both_transports_route():
     assert any(route.path == "/messages" for route in app.routes)
 
 
+def test_deprecated_aliases_warn_and_canonical_survivors():
+    """§5.8 (auditoria MCP de custo): aliases deprecados avisam na descrição
+    por 1 release; as canônicas sobrevivem sem aviso e sem o rótulo legado."""
+    from autocub_mcp.server import TOOLS
+
+    descs = {fn.__name__: desc for fn, desc in TOOLS}
+
+    # deprecadas — apontam a sobrevivente (RED: sem "DEPRECATED" hoje)
+    assert "DEPRECATED" in descs["cub_dash"]
+    assert "cub_panorama" in descs["cub_dash"]
+    assert "DEPRECATED" in descs["cub_impacto_desoneracao"]
+    assert "cub_deson" in descs["cub_impacto_desoneracao"]
+
+    # canônicas — sem aviso e sem o rótulo "alias REST legado" (RED: há)
+    for canonica in ("cub_panorama", "cub_deson"):
+        assert "DEPRECATED" not in descs[canonica]
+        assert "alias REST legado" not in descs[canonica]
+
+
 async def test_streamable_handshake_and_discovery():
     server = create_server()
     app = create_http_app(server)

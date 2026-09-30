@@ -422,7 +422,11 @@ def get_cub_dash(
         desoneracao=deson_slug,
         total_projetos=len(cotacoes_dto),
         metricas=metricas,
-        estrutura_agrupada=estrutura_agrupada
+        estrutura_agrupada=estrutura_agrupada,
+        fonte=(
+            f"{sind.nome} ({sind.uf}) — CUB publicado "
+            f"(NBR 12.721:2006), referência {target_date:%Y-%m}"
+        ),
     )
 
 

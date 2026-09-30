@@ -246,6 +246,14 @@ Em vez de um frontend ou aplicativo cliente disparar 19 requisições diferentes
 - `uf` (path, obrigatório): Sigla do estado (ex: `GO`, `MG`, `RJ`).
 - `ano` (int, opcional), `mes` (int, opcional), `desoneracao` (str, opcional), `sinduscon_id` (int, opcional).
 
+#### 📤 Contrato do campo `fonte` (§5.8 da auditoria MCP de custo)
+A resposta inclui **`fonte`** — texto único de origem para o agente sinalizar ao
+usuário de onde vem o dado: sindicato publicador, norma e período de referência.
+Ex.: `"Sinduscon-MG (MG) — CUB publicado (NBR 12.721:2006), referência 2026-08"`.
+Na superfície MCP a tool canônica é **`cub_panorama`** (aponta para esta rota);
+`cub_dash` está **deprecada** — aviso na descrição por 1 release e remoção
+posterior (ver `autocub_mcp/server.py`, `TOOLS`).
+
 ---
 
 ### `GET /v1/cub/{uf}/deson` *(alias `/impacto-desoneracao`)*
@@ -355,6 +363,15 @@ A NBR 12.721:2006 e a Lei 4.591/1964 possuem regras imutáveis que não mudam a 
 
 ### `GET /health` e `GET /v1/health`
 - **Dor que resolve:** Monitoramento de integridade e readiness probes para orquestradores (Kubernetes, Docker Compose, Traefik). Verifica ativamente a conectividade com o banco de dados PostgreSQL e informa o status operacional do serviço.
+- **Contrato §5.8 (auditoria MCP de custo):**
+  - **`stage`** — declaração do ambiente da instância (env `STAGE`, default
+    `development`; a implantação de produção declara `production`). Substitui o
+    antigo `environment`, que reportava `"development"` em produção.
+  - **`fontes`** — mapa UF → sindicatos que **efetivamente publicaram** cotação.
+    Derivado de dado publicado (não do cadastro): UF sem cotação no banco não
+    aparece, coerente com a sinalização LIM-38 ("dado ainda não disponibilizado
+    pelo CBIC"). Falha degrada para `{}` — health nunca vira 500.
+  - `status`, `service`, `version` e `database` inalterados.
 
 ---
 

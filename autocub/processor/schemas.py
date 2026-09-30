@@ -174,6 +174,10 @@ class PanoramaResponse(BaseModel):
     total_projetos: int
     metricas: PanoramaMetricas
     estrutura_agrupada: PanoramaEstruturaAgrupada
+    fonte: str
+    """§5.8: origem do dado em texto único para sinalização ao usuário —
+    sindicato publicador, norma e período de referência (ex.: "Sinduscon-MG
+    (MG) — CUB publicado (NBR 12.721:2006), referência 2026-01")."""
 
 
 class ItemImpactoDesoneracao(BaseModel):

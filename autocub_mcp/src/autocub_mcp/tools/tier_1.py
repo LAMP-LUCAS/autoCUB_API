@@ -95,8 +95,10 @@ async def cub_panorama(
     sinduscon_id: int | None = None,
     ctx: Context | None = None,
 ) -> dict | list:
+    # §5.8: canônica aponta para a rota REST canônica (/dash); a rota legada
+    # /panorama continua servida pela API para compatibilidade.
     return await _get(
-        f"/v1/cub/{segment(uf)}/panorama",
+        f"/v1/cub/{segment(uf)}/dash",
         {"ano": ano, "mes": mes, "desoneracao": desoneracao, "sinduscon_id": sinduscon_id},
         ctx,
     )

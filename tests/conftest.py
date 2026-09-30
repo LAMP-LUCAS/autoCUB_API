@@ -31,6 +31,18 @@ engine_test = create_engine(
 TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine_test)
 
 
+@pytest.fixture(autouse=True)
+def _flush_test_cache():
+    """Isolamento de cache da suíte (Fase 5): flush do DB de teste (REDIS_DB=15)
+    antes de CADA teste, via o próprio cliente da aplicação (garante o mesmo
+    DB). Sem isso, entradas de execuções/testes anteriores carregam fixtures
+    alheias e/ou schema antigo de resposta (ex.: campo `fonte` do §5.8) e
+    quebram a validação de `response_model` e as asserções."""
+    from autocub.core.cache import cache as app_cache
+
+    app_cache.invalidate("*")
+
+
 @pytest.fixture(scope="session")
 def sample_pdf_path() -> Path:
     base_dir = Path(__file__).parent.parent

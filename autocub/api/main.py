@@ -1,11 +1,12 @@
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, status
+from fastapi import Depends, FastAPI, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
+from sqlalchemy.orm import Session
 
 from autocub.core.config import settings
 from autocub.core.logging import logger
-from autocub.database.connection import init_db, engine
+from autocub.database.connection import init_db, engine, get_db
 from autocub.api.routers import cub_router, metadata_router, admin_router, kb_router, calc_router
 
 
@@ -104,7 +105,7 @@ def root():
 
 @app.get("/health", tags=["Health"])
 @app.get(f"{settings.API_PREFIX}/health", tags=["Health"])
-def health_check():
+def health_check(db: Session = Depends(get_db)):
     """
     Health check para balanceadores de carga, Kubernetes e Kong Gateway.
     Verifica a conectividade ativa com a infraestrutura.
@@ -112,6 +113,11 @@ def health_check():
     Contrato canônico do ecossistema Mundoaec: `GET /api/v1/cub/health`
     (registrado no router CUB, antes do catch-all `/{uf}`). Mantém `/health`
     e `/v1/health` para probes de container/CI direto no upstream.
+
+    §5.8 (auditoria MCP de custo): `stage` (env `STAGE`, default
+    `development`) substitui o antigo `environment`, que reportava
+    "development" em produção; `fontes` mapeia UF → sindicatos que
+    efetivamente publicaram cotação, para o agente sinalizar a origem.
     """
     from sqlalchemy import text
     db_status = "healthy"
@@ -121,11 +127,30 @@ def health_check():
     except Exception as e:
         db_status = f"unhealthy: {str(e)}"
 
+    # §5.8 (auditoria MCP de custo): fontes por UF — sindicatos que
+    # efetivamente publicaram cotação. Derivado de DADO PUBLICADO (não do
+    # cadastro): UF sem cotação não aparece no mapa, coerente com a
+    # sinalização LIM-38 ("dado ainda não disponibilizado pelo CBIC").
+    # Usa a sessão injetada (get_db) — e não o engine global — para que a
+    # suíte meça o banco de teste e a produção o banco real. Falha degrada
+    # para mapa vazio — health nunca pode virar 500.
+    fontes: dict[str, list[str]] = {}
+    try:
+        rows = db.execute(text(
+            "SELECT DISTINCT s.uf, s.nome FROM cub_mensal m "
+            "JOIN sinduscons s ON s.id = m.sinduscon_id "
+            "ORDER BY s.uf, s.nome"
+        )).all()
+        for uf_fonte, nome_fonte in rows:
+            fontes.setdefault(uf_fonte, []).append(nome_fonte)
+    except Exception:
+        fontes = {}
 
     return {
         "status": "online",
         "service": settings.API_TITLE,
         "version": settings.API_VERSION,
-        "environment": settings.ENVIRONMENT,
+        "stage": settings.STAGE,
         "database": db_status,
+        "fontes": fontes,
     }

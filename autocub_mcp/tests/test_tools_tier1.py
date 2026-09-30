@@ -30,7 +30,9 @@ CASES = [
         "/v1/cub/latest",
         {"desoneracao": "SEM_DESONERACAO", "limit": 0},
     ),
-    ("cub_panorama", {"uf": "GO"}, "/v1/cub/GO/panorama", {"desoneracao": "SEM_DESONERACAO"}),
+    # §5.8: canônica aponta para a rota REST canônica (/dash); a rota legada
+    # /panorama continua servida pela API para compatibilidade.
+    ("cub_panorama", {"uf": "GO"}, "/v1/cub/GO/dash", {"desoneracao": "SEM_DESONERACAO"}),
     ("cub_dash", {"uf": "GO"}, "/v1/cub/GO/dash", {"desoneracao": "SEM_DESONERACAO"}),
     ("cub_impacto_desoneracao", {"uf": "GO"}, "/v1/cub/GO/impacto-desoneracao", {}),
     ("cub_deson", {"uf": "GO"}, "/v1/cub/GO/deson", {}),
