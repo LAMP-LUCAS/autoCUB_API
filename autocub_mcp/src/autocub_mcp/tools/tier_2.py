@@ -68,11 +68,19 @@ async def cub_calc_area(payload: AreaPayload, ctx: Context | None = None) -> dic
         # (erro/motivo/ufs_com_cub_mais_proximas, exigidos pelo claim C-04).
         codigo = resultado.get("erro") or "CUB_NAO_PUBLICADO_POR_UF"
         env = await envelope.sem_dado(consulta=consulta, codigo=codigo, ctx=ctx)
-        env.update(resultado)                      # preserva o cálculo e o C-04
+        # P1-1: o texto da API entra como detalhe, e o `motivo` do CONTRATO
+        # (objeto com codigo/natureza) não pode ser sobrescrito por string — o
+        # texto da API carregava jargão interno ("ver LIM-38").
+        # detalhe legível da API (P1-1): entra no envelope sem sobrescrever o
+        # `motivo` do contrato, que é objeto com codigo/natureza
+        detalhe = resultado.get("motivo")
+        if isinstance(detalhe, str) and "LIM-38" not in detalhe:
+            env["motivo_detalhe"] = detalhe
+        env.update({k: v for k, v in resultado.items() if k not in ("motivo", "itens")})
         env["status"] = "sem_dado"
         env["disponivel"] = False
-        env["itens"] = env.get("itens") or []
+        env["itens"] = resultado.get("itens") or []
         env["total"] = 0
         return env
 
-    return await envelope.com_vigencia(resultado, consulta, ctx)
+    return await envelope.com_dado(resultado, consulta, ctx)

@@ -21,12 +21,38 @@ import pytest
 from mcp.server.fastmcp import Context
 
 from autocub_mcp import envelope
+from autocub_mcp.client import NotFoundError
 from autocub_mcp.tools import tier_1, tier_2
 
 SNAPSHOT = {
     "uf": "RJ", "codigo_padrao": "R1-N", "desoneracao": "SEM_DESONERACAO",
     "data_referencia": "2026-08-01", "valor_m2": Decimal("2984.18"),
     "categoria": "RESIDENCIAL", "uf_cobertura": "RJ",
+}
+
+
+# `cub_health` do acervo: AM tem 2 meses repetidos (forward-fill). É a fonte
+# da sinalização de dado provisório no caminho de leitura (P0-1).
+SAUDE = {
+    "cobertura": {
+        "series_provisorias": {
+            "ufs": ["AM"],
+            "total_registros": 2,
+            "detalhe": {
+                "AM": {
+                    "series": ["R1-N/SEM_DESONERACAO"],
+                    "registros": 2,
+                    "motivo": "VALOR_REPETIDO_NA_SERIE",
+                    "series_detalhe": {
+                        "R1-N/SEM_DESONERACAO": {
+                            "competencias": ["2026-05", "2026-06"],
+                            "meses_repeticao": 2,
+                        },
+                    },
+                },
+            },
+        },
+    },
 }
 
 
@@ -67,7 +93,16 @@ def _patch(monkeypatch, client, *, uf="RJ", ref="2026-08", extra_ufs=("GO",), re
     async def fetch(key, fetch_fn, **kwargs):
         return await fetch_fn()
 
+    async def fake_get(path, params=None, api_key=None):
+        # o envelope padrão consulta /v1/health para os alertas de série
+        # provisória (o mesmo cache do health da API)
+        if path == "/v1/health":
+            return {"cobertura": {"series_provisorias": SAUDE}}
+        return registros if resultado is None else resultado
+
     cache.get_or_fetch.side_effect = fetch
+    if not isinstance(client.get.side_effect, NotFoundError):
+        client.get.side_effect = fake_get
     client.get.return_value = registros if resultado is None else resultado
     monkeypatch.setattr(tier_1, "get_client", lambda: client)
     monkeypatch.setattr(tier_1, "get_cache", lambda: cache)
@@ -137,6 +172,9 @@ class TestSemDado:
         assert out["itens"] == [] and out["total"] == 0
         assert out["alternativas"]["ufs_com_dado"] == ["GO", "RJ"]
         assert out["orientacao"]["acao_recomendada"] == "usar_uf_proxima"
+        # P1-1: o identificador do ticket NÃO vai para o corpo (fica no log)
+        assert "nota_interna" not in out
+        assert "LIM-38" not in str(out)
         # regra inviolável: sem dado não vem com número
         assert "valor_m2" not in str(out)
 
@@ -198,14 +236,20 @@ class TestSemDado:
 
 class TestComDado:
     @pytest.mark.asyncio
-    async def test_lista_plana_preservada_com_vigencia_por_item(self, monkeypatch):
+    async def test_envelope_padrao_no_caminho_com_dado(self, monkeypatch):
+        """P1-2: coerência do contrato tem precedência sobre a forma de lista —
+        toda tool responde status/disponivel/items/total/vigencia."""
         client = AsyncMock()
-        _patch(monkeypatch, client, ref="2026-03", extra_ufs=("GO",))
+        _patch(monkeypatch, client, uf="RJ", ref="2026-08", extra_ufs=("GO",))
 
         out = await tier_1.cub_latest(uf="RJ", ctx=context_with_key())
-        assert isinstance(out, list), "UF coberta continua lista plana (LIM-38)"
-        assert out[0]["vigencia"]["vigente"] is True
-        assert out[0]["vigencia"]["meses_de_atraso"] == 0
+        assert isinstance(out, dict)
+        assert out["status"] == "ok"
+        assert out["disponivel"] is True
+        assert isinstance(out["items"], list) and out["items"]
+        assert isinstance(out["total"], int)
+        assert out["vigencia"]["vigente"] is True
+        assert out["consulta"]["uf"] == "RJ"
 
     @pytest.mark.asyncio
     async def test_item_defasado_marca_vigencia(self, monkeypatch):
@@ -223,10 +267,11 @@ class TestComDado:
 
         monkeypatch.setattr(envelope, "snapshot", fake_snapshot)
         out = await tier_1.cub_get_uf("AC", ctx=context_with_key())
-        item = out[0]
+        item = out["items"][0]
         assert item["vigencia"]["vigente"] is False
         assert item["vigencia"]["meses_de_atraso"] == 5
         assert "5 mês(es)" in item["vigencia"]["alerta"]
+        assert out["vigencia"]["vigente"] is False
 
     @pytest.mark.asyncio
     async def test_dicionario_recebe_vigencia_no_topo(self, monkeypatch):
@@ -246,6 +291,7 @@ class TestComDado:
         out = await tier_1.cub_padroes_list(ctx=context_with_key())
         assert out["vigencia"]["escopo"] == "catalogo_perene"
         assert out["vigencia"]["meses_de_atraso"] == 0
+        assert out["status"] == "ok"
 
     @pytest.mark.asyncio
     async def test_calc_area_com_cub_recebe_vigencia(self, monkeypatch):
@@ -261,4 +307,4 @@ class TestComDado:
             ctx=context_with_key(),
         )
         assert out["vigencia"]["vigente"] is True
-        assert "status" not in out, "com dado não recebe status de sem_dado"
+        assert out["status"] == "ok" and out["disponivel"] is True

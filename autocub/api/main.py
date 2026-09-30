@@ -188,20 +188,35 @@ def health_check(db: Session = Depends(get_db)):
                 ).all()
             ]
             provisorios = detectar_repeticoes(registros)
+            # Detalhe por (padrão/desoneração) com as COMPETÊNCIAS afetadas: é o
+            # que permite ao MCP marcar a cotação exata no caminho de leitura
+            # (STORY-MCP-007 P0-1 — o aviso precisa viajar com o dado).
             por_uf: dict = {}
             for registro in provisorios:
                 uf = registro["uf"]
-                info = por_uf.setdefault(uf, {"series": [], "registros": 0,
-                                              "motivo": "VALOR_REPETIDO_NA_SERIE"})
-                info["registros"] += 1
                 chave = f"{registro['codigo_padrao']}/{registro['desoneracao']}"
-                if chave not in info["series"]:
-                    info["series"].append(chave)
+                info = por_uf.setdefault(uf, {
+                    "series": {}, "registros": 0, "motivo": "VALOR_REPETIDO_NA_SERIE",
+                })
+                info["registros"] += 1
+                serie = info["series"].setdefault(
+                    chave, {"competencias": [], "meses_repeticao": registro.get("meses_repeticao")}
+                )
+                competencia = str(registro.get("data_referencia") or "")[:7]
+                if competencia and competencia not in serie["competencias"]:
+                    serie["competencias"].append(competencia)
             if por_uf:
                 cobertura["series_provisorias"] = {
                     "ufs": sorted(por_uf),
                     "total_registros": len(provisorios),
-                    "detalhe": por_uf,
+                    "detalhe": {
+                        # `series` mantém a lista de nomes (contrato anterior);
+                        # `series_detalhe` traz as competências afetadas de cada
+                        # uma — é o que o MCP usa para marcar a cotação exata.
+                        uf: {**info, "series": sorted(info["series"]),
+                             "series_detalhe": info["series"]}
+                        for uf, info in por_uf.items()
+                    },
                     "motivo": (
                         "Série com 2+ meses de valor idêntico: provável "
                         "republicacao/forward-fill da fonte. Os registros NÃO "

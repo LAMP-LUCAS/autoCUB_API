@@ -92,6 +92,13 @@ class CubEstadoPeriodoResponse(BaseModel):
     desoneracao: str
     total_projetos: int
     cotacoes: List[CubCotacaoResponse]
+    recomendado: bool = False
+    """STORY-MCP-007 P0-2: em UF com vários sindicatos ativos, qual é a praça
+    que o resto da API usa por default (§5.1 — `chave_preferencia`: ativo > com
+    dado > dado mais recente > menor id). Sem isso, o agente precisa ler a lista
+    inteira para descobrir qual número é o canônico."""
+    motivo_recomendacao: Optional[str] = None
+    """Legenda do porquê (ex.: 'dado mais recente entre os 3 sindicatos ativos')."""
 
 
 class CubHistoricoItem(BaseModel):
@@ -136,6 +143,16 @@ class ComparativoResponse(BaseModel):
     codigo_padrao: str
     padrao_nome: str
     data_referencia: date
+    data_referencia_solicitada: Optional[date] = None
+    """STORY-MCP-007 P0-2: o período PEDIDO. Sem ele, quando o pedido é
+    atendido, `data_referencia` pode ser lido como "o agente pediu 2026-08" —
+    e uma UF que não tem aquele mês simplesmente não entra. Expor o pedido
+    lado a lado torna o filtro explícito para o agente."""
+    data_referencia_servida: Optional[date] = None
+    """Competência ATENDIDA (iguais quando o pedido foi atendido)."""
+    criterio_periodo: Optional[str] = None
+    """Como o período foi resolvido: `exata` (pedido atendido) ou
+    `mais_recente` (sem pedido — última competência do padrão/desoneração)."""
     desoneracao: str
     total_comparados: int
     media_grupo: Num

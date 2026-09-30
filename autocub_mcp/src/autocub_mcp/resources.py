@@ -83,6 +83,26 @@ Material sintetizado de `docs/GUIA_ENDPOINTS_E_REGRAS_DE_NEGOCIO.md`.
     CUB publicado responde `motivo.codigo = CUB_NAO_PUBLICADO_POR_UF`. O texto
     que cita o identificador do ticket fica em `nota_interna` (rastreabilidade
     do servidor) — **jargão interno não vai para o corpo do cliente** (B-05).
+- **Envelope nas duas direções (P1-2):** com dado, a resposta também é o mesmo
+  envelope — `{status: "ok", disponivel: true, consulta, vigencia, items, total}`
+  (mais os campos próprios da tool). Coerência do contrato tem precedência
+  sobre a forma de lista (decisão do usuário 2026-09-30): o agente escreve
+  contra um formato estável nos dois caminhos.
+- **Dado provisório viaja com o dado (P0-1):** série com 2+ meses de valor
+  idêntico (provável republicação/forward-fill) aparece em `alertas[]` **na
+  resposta da própria UF** — não só em `cub_health` — e as cotações afetadas
+  recebem `provisorio: true` + `motivo_provisorio`. UF saudável não é
+  sinalizada, e a ressincronização (o mês que voltou a variar) não é marcada.
+  Use `cub_health` para o diagnóstico completo da base.
+- **Provenance em UF multi-sindicato (P0-2):** `cub_get_uf` traz **um item por
+  sindicato ativo**, ordenados por competência **decrescente**, e o item que a
+  API usa por default (§5.1) vem primeiro com `recomendado: true` +
+  `motivo_recomendacao`. Não escolha a praça "por posição na lista": em MG são
+  3, com competências diferentes (2026-08, 2026-07, 2026-06).
+- **Paginação de `cub_latest`:** o acervo tem ~19 registros por UF, então
+  `limit=50` devolve só as primeiras UFs. Com `com_meta=true` a resposta traz
+  `meta_navegacao{total, skip, limit, has_more}`; sem ele, você **não sabe se
+  truncou** — nesse caso use `limit=0` (acervo completo).
 - **Vigência (B-03):** toda resposta **com dado** traz
   `vigencia{vigente, meses_de_atraso, ultima_publicacao_conhecida}` —
   medida contra a competência mais recente do acervo. Em resposta em forma de

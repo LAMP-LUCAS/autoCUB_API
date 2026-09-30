@@ -74,8 +74,12 @@ async def test_calc_area_posts_exact_body(monkeypatch):
     monkeypatch.setattr(tier_2, "get_client", lambda: client)
     payload = {"itens": [{"ambiente": "Apartamento", "area_real_m2": "100.00"}]}
     result = await tier_2.cub_calc_area(payload=payload, ctx=context_with_key("fixture-key"))
-    # STORY-MCP-007: o cálculo vem intacto + `vigencia` (o agente precisa saber
-    # se o CUB aplicado é o vigente).
-    assert {k: v for k, v in result.items() if k != "vigencia"} == response
-    assert "vigencia" in result
+    # STORY-MCP-007: o cálculo vem no envelope padrão (status ok) e os campos
+    # da API seguem disponíveis no topo (contrato aditivo).
+    assert result["status"] == "ok" and result["disponivel"] is True
+    for chave, valor in response.items():
+        if chave == "itens":
+            continue
+        assert result[chave] == valor, chave
+    assert result["vigencia"]
     client.post.assert_awaited_once_with("/v1/calc/area", json=payload, api_key="fixture-key")

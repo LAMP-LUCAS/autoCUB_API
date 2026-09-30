@@ -256,16 +256,17 @@ def calcular_area_equivalente(
                 )
                 padroes = sorted({linha[0] for linha in linhas_padrao if linha[0]})
                 motivo_erro = (
-                    f"A UF {uf.upper()} tem sindicato cadastrado, mas nenhuma cotação"
+                    f"A UF {uf.upper()} tem sindicato cadastrado, mas não há cotação"
                     + (f" para o padrão {codigo_padrao.upper()}" if codigo_padrao else "")
                     + ". Padrões com dado na UF: "
                     + (", ".join(patroes) if padroes else "nenhum") + "."
                 )
         else:
             erro = "CUB_INDISPONIVEL_PARA_UF"
+            # Sem jargão interno no corpo (P1-1): o cliente lê esta mensagem.
             motivo_erro = (
-                f"A UF {uf.upper()} não possui sindicato com CUB cadastrado "
-                "(limitação de cobertura — ver LIM-38)."
+                f"O índice CUB ainda não está disponível para a UF {uf.upper()}: "
+                "não há série publicada para este estado na fonte oficial."
             )
         if erro:
             alternativas = _ufs_com_cub(db, uf)

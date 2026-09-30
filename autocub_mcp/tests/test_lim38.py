@@ -66,17 +66,18 @@ async def test_cub_get_uf_converte_404_lim38_em_resposta(monkeypatch):
 
     out = await tier_1.cub_get_uf("SP", ctx=context_with_key("fixture-key"))
 
-    # Contrato único (STORY-MCP-007/B-05): o texto do cliente é linguagem de
-    # domínio e o identificador do ticket fica em `nota_interna`.
+    # Contrato único: o texto do cliente é linguagem de domínio e o
+    # identificador do ticket NÃO vai para o corpo (P1-1 — fica no log).
     assert out["status"] == "sem_dado"
     assert out["disponivel"] is False
     assert out["motivo"]["codigo"] == "CUB_NAO_PUBLICADO_POR_UF"
     assert out["motivo"]["natureza"] == "limitacao_externa"
-    assert "LIM-38" in out["nota_interna"]["referencia"]
-    _assert_nota(out["nota_interna"]["texto"])
+    assert "nota_interna" not in out, "rastreabilidade interna não vai no payload"
     # jargão interno NUNCA no texto voltado ao cliente
-    assert "LIM-38" not in out["motivo"]["descricao"]
-    assert "LIM-38" not in out["orientacao"]["texto"]
+    assert "LIM-38" not in str(out)
+    assert "roadmap" not in str(out)
+    # ...e o texto canônico continua disponível para o LOG do servidor
+    _assert_nota(NOTA_LIM38)
 
 
 async def test_cub_get_uf_404_comum_vira_envelope_classificado(monkeypatch):
@@ -109,8 +110,8 @@ async def test_cub_latest_repassa_envelope_da_api(monkeypatch):
     assert out["status"] == "sem_dado"
     assert out["disponivel"] is False
     assert out["itens"] == []
-    _assert_nota(out["nota_interna"]["texto"])
-    assert out["nota_interna"]["referencia"] == "LIM-38"
+    assert out["motivo"]["codigo"] == "CUB_NAO_PUBLICADO_POR_UF"
+    assert "nota_interna" not in out and "LIM-38" not in str(out)
 
 
 def test_espelho_da_nota_bate_com_o_texto_da_api():

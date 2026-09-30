@@ -33,17 +33,18 @@ logger = logging.getLogger("autocub.roadmap")
 
 MOTIVO_SEM_CADASTRO = "SEM_SINDUSCON_CADASTRADO"
 MOTIVO_SEM_COTACAO = "SEM_COTACAO_NA_BASE"
+# P1-1: linguagem de CLIENTE. "adapter", "ETL" e "roadmap" são vocabulário de
+# engenharia e não devem aparecer no corpo que o cliente lê.
 MOTIVO_DEFS = [
-    (MOTIVO_SEM_COTACAO, "A UF tem sindicato cadastrado, mas nenhuma cotação foi "
-     "ingerida até agora. Depende de adapter/fonte ativa para o estado."),
-    (MOTIVO_SEM_CADASTRO, "A UF não tem sindicato cadastrado com CUB. Depende de "
-     "adapter implementado e fonte oficial que publique o índice."),
+    (MOTIVO_SEM_COTACAO,
+     "Ainda não há índice CUB disponível para este estado na fonte oficial."),
+    (MOTIVO_SEM_CADASTRO,
+     "O índice CUB ainda não está disponível para este estado na fonte oficial."),
 ]
 
-# Próxima janela da ETL mensal (dia 2, 03:00 UTC — ver celery_config da casa).
 # A previsão é de PROCESSO, não de fonte: a data em que a UF terá dado depende
-# de quando o adapter existir, e isso não é previsível daqui.
-JANELA_ETL_MENSAL = " proxima ETL mensal (dia 2 do mês)"
+# de quando existir coleta para o estado, e isso não é previsível daqui.
+JANELA_ETL_MENSAL = " próxima atualização mensal da base"
 
 
 def tem_sindiccon(db: Session, uf: str) -> bool:
@@ -72,19 +73,18 @@ def roadmap_uf(db: Session, uf: str) -> dict[str, Any]:
     if tem_sindic and ultima is None:
         codigo = MOTIVO_SEM_COTACAO
         previsao = JANELA_ETL_MENSAL
-        observacao = ("Sindicato cadastrado, sem cotação: a próxima execução da "
-                      "ETL tenta; se não houver publicação, o motivo real é a "
-                      "fonte e precisa de adapter.")
+        observacao = ("Ainda não disponível para este estado. A atualização "
+                      "depende de publicação da fonte oficial.")
     elif not tem_sindic:
         codigo = MOTIVO_SEM_CADASTRO
         # sem cadastro, a ETL não tem o que coletar — não há janela de processo
         previsao = None
-        observacao = ("Depende de adapter/fonte para o estado (roadmap, sem "
-                      "janela de ETL aplicável).")
+        observacao = ("Ainda não disponível para este estado. Não há data prevista.")
     else:
         codigo = MOTIVO_SEM_COTACAO
         previsao = JANELA_ETL_MENSAL
-        observacao = "Histórico parcial; a próxima ETL reavalia."
+        observacao = ("Dados anteriores disponíveis; atualização depende de "
+                      "publicação da fonte oficial.")
 
     return {
         "uf": uf,

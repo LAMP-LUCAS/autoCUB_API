@@ -810,8 +810,11 @@ def get_comparativo_regional(
         )
     )
 
+    solicitada: Optional[date] = None
     if ano and mes:
         data_ref = date(ano, mes, 1)
+        solicitada = data_ref
+        criterio = "exata"
         query = query.filter(CubMensal.data_referencia == data_ref)
     else:
         latest_date = (
@@ -822,6 +825,7 @@ def get_comparativo_regional(
         if not latest_date:
             raise HTTPException(status_code=404, detail=f"Sem dados para {codigo_padrao_norm}.")
         data_ref = latest_date
+        criterio = "mais_recente"
         query = query.filter(CubMensal.data_referencia == data_ref)
 
     results = query.order_by(CubMensal.valor_m2.desc()).all()
@@ -878,6 +882,9 @@ def get_comparativo_regional(
         codigo_padrao=codigo_padrao_norm,
         padrao_nome=padrao_nome,
         data_referencia=data_ref,
+        data_referencia_solicitada=solicitada,
+        data_referencia_servida=data_ref,
+        criterio_periodo=criterio,
         desoneracao=deson_slug,
         total_comparados=len(items),
         media_grupo=media_grp,
@@ -964,17 +971,41 @@ def get_cub_by_uf(
                 for cub, padrao in cotacoes_raw
             ]
 
-            response_list.append(
-                CubEstadoPeriodoResponse(
-                    uf=sind.uf,
-                    sinduscon_id=sind.id,
-                    sinduscon_nome=sind.nome,
-                    regiao=sind.regiao,
-                    data_referencia=ref_date,
-                    desoneracao=deson_slug,
-                    total_projetos=len(cotacoes_dto),
-                    cotacoes=cotacoes_dto
-                )
-            )
+            response_list.append((sind, ref_date, cotacoes_dto))
 
-    return response_list
+    # STORY-MCP-007 P0-2: a rota `/{uf}` devolve UM item por sindicato ativo, e
+    # a ordem de inserção do banco não é a ordem de preferência. Ordenar por
+    # competência DECRESCENTE e marcar o que o resto da API usa por default tira
+    # do agente a necessidade de varrer a lista: sem isso, `cub_get_uf("MG")`
+    # começava pelo sindicato mais antigo (2026-06) e o agente podia orçar por
+    # ele sem notar que existe 2026-08.
+    maxes = max_data_por_sinduscon(db)
+    ordenados = sorted(
+        response_list,
+        key=lambda par: chave_preferencia(par[0].id, par[0].ativo, maxes),
+    )
+    recomendada_id = ordenados[0][0].id if ordenados else None
+    saida: List[CubEstadoPeriodoResponse] = []
+    for sind, ref_date, cotacoes_dto in ordenados:
+        recomendado = sind.id == recomendada_id
+        saida.append(
+            CubEstadoPeriodoResponse(
+                uf=sind.uf,
+                sinduscon_id=sind.id,
+                sinduscon_nome=sind.nome,
+                regiao=sind.regiao,
+                data_referencia=ref_date,
+                desoneracao=deson_slug,
+                total_projetos=len(cotacoes_dto),
+                cotacoes=cotacoes_dto,
+                recomendado=recomendado,
+                motivo_recomendacao=(
+                    f"dado mais recente entre os {len(ordenados)} sindicato(s) "
+                    f"ativo(s) da UF" if recomendado else None
+                ),
+            )
+        )
+    # mais recente primeiro (o recomendado já é o mais recente por construção,
+    # mas a ordenação por competência deixa explícito para quem lê a lista)
+    saida.sort(key=lambda r: (not r.recomendado, -(r.data_referencia.toordinal())))
+    return saida

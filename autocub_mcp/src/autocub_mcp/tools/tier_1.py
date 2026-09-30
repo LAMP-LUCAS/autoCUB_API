@@ -1,3 +1,4 @@
+import logging
 from urllib.parse import quote
 
 from mcp.server.fastmcp import Context
@@ -7,7 +8,8 @@ from autocub_mcp import envelope
 from autocub_mcp.auth import resolve_api_key
 from autocub_mcp.cache import CacheManager, cache_key
 from autocub_mcp.client import APIClient, NotFoundError
-from autocub_mcp.lim38 import NOTA_LIM38
+
+logger = logging.getLogger("autocub.mcp")
 
 _client: APIClient | None = None
 _cache: CacheManager | None = None
@@ -80,7 +82,6 @@ async def _get(
             consulta=consulta,
             codigo=_classificar_404(str(exc)),
             ctx=ctx,
-            nota_interna=_nota_interna_404(str(exc)),
         )
 
     if envelope.e_vazio(resultado):
@@ -88,28 +89,24 @@ async def _get(
             consulta=consulta,
             codigo=await _classificar_vazio(consulta, resultado, ctx),
             ctx=ctx,
-            nota_interna=envelope.nota_interna_do_api(resultado),
         )
-    return await envelope.com_vigencia(resultado, consulta, ctx)
+    return await envelope.com_dado(resultado, consulta, ctx)
 
 
 def _classificar_404(mensagem: str) -> str:
     """404 → código do catálogo. O marcador LIM-38 (detail da API) distingue
-    'UF sem adapter' de 'sindicado não cadastrado'."""
+    'UF sem publicado' de 'sindicado não cadastrado'.
+
+    P1-1: o identificador do ticket vai para o LOG do servidor, nunca para o
+    corpo da resposta — um campo chamado "nota_interna" no payload continuava
+    entregando o jargão ao cliente (e convidava o agente a ignorá-lo).
+    """
     if "LIM-38" in mensagem:
+        logger.info(
+            "cobertura CUB ausente (LIM-38) — registrado no servidor: %s", mensagem,
+        )
         return "CUB_NAO_PUBLICADO_POR_UF"
     return "SEM_SINDUSCON_CADASTRADO"
-
-
-def _nota_interna_404(mensagem: str) -> dict | None:
-    """Rastreabilidade interna SEM vazar jargão para o cliente (B-05).
-
-    O texto com o identificador de ticket (`LIM-38`) fica aqui e no log do
-    servidor; o corpo da resposta fala linguagem de domínio.
-    """
-    if "LIM-38" not in mensagem:
-        return None
-    return {"referencia": "LIM-38", "texto": NOTA_LIM38}
 
 
 async def _classificar_vazio(consulta: dict, resultado: object, ctx) -> str:
@@ -192,28 +189,28 @@ async def cub_latest(
         ctx,
         consulta={"uf": uf.upper() if uf else None, "desoneracao": desoneracao},
     )
-    if not com_meta or not isinstance(resultado, list):
+    if not com_meta or not isinstance(resultado, dict):
         return resultado
-
-    # Envelope de navegação. O `total` é o **acervo completo** (já contido no
-    # snapshot cacheado — nenhuma chamada extra), não uma estimativa: número
-    # inventado em envelope de navegação seria exatamente o defeito que este
-    # trabalho elimina.
+    itens = resultado.get("items") if isinstance(resultado.get("items"), list) else []
     snap = await envelope.snapshot(ctx)
-    itens = resultado
+
+    # Metadados de navegação, aninhados no envelope padrão (que fica no topo).
+    # O `total` é o **acervo completo** (já contido no snapshot cacheado — nenhuma
+    # chamada extra), não uma estimativa: número inventado em envelope de
+    # navegação seria exatamente o defeito que este trabalho elimina.
     total = snap.get("total_registros") or len(itens) + skip
-    return {
-        "items": itens,
+    resultado["meta_navegacao"] = {
         "total": total,
         "skip": skip,
         "limit": limit,
         "has_more": skip + len(itens) < total,
         "ufs_no_periodo": sorted({i.get("uf") for i in itens if isinstance(i, dict)}),
         "nota": (
-            "Envelope de navegação (com_meta=true). Sem este parâmetro a tool "
-            "devolve lista plana — contrato preservado para o LIM-38."
+            "Metadados de navegação. Sem `com_meta=true` a resposta não diz se "
+            "truncou — nesse caso use `limit=0` para o acervo completo."
         ),
     }
+    return resultado
 
 
 @validate_call
