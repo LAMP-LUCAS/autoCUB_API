@@ -10,6 +10,7 @@ from starlette.responses import JSONResponse
 from starlette.routing import Route
 
 from autocub_mcp.config import get_config
+from autocub_mcp.resources import register_resources
 from autocub_mcp.tools import tier_1, tier_2
 
 TOOLS = (
@@ -61,6 +62,7 @@ def create_server() -> FastMCP:
     )
     for function, description in TOOLS:
         server.tool(name=function.__name__, description=description)(function)
+    register_resources(server)
     return server
 
 
