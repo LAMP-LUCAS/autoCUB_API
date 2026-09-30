@@ -125,6 +125,9 @@ class ComparativoResponse(BaseModel):
     total_comparados: int
     media_grupo: Decimal
     comparativo: List[ComparativoItem]
+    ufs_nao_encontrados: List[str] = []
+    """§5.4: UFs pedidas no `ufs` sem sinduscon/dado para o padrão+mês —
+    nunca descartadas em silêncio (ex.: SP sem adapter de coleta)."""
 
 
 # ------------------------------------------------------------------------------
@@ -212,6 +215,11 @@ class RankingResponse(BaseModel):
     desoneracao: str
     total_estados: int
     media_nacional: Decimal
+    ufs_incluidas: List[str] = []
+    """§5.3: UFs que efetivamente entraram na média (a "média nacional" é
+    uma AMOSTRA — declarar quem compõe, nunca esconder a cobertura)."""
+    cobertura_pct: Decimal = Decimal("0.0")
+    """§5.3: cobertura da amostra (% das 27 UFs do Brasil)."""
     ranking: List[RankingItem]
 
 

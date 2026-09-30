@@ -624,6 +624,12 @@ def get_cub_rank(
             )
         )
 
+    # §5.3: qualificar a amostra da "média nacional" — quais UFs entraram e
+    # qual a cobertura (% das 27 UFs do Brasil). Sem isso, uma média sobre 9
+    # UFs se apresentava como "nacional" sem sinal.
+    ufs_incluidas = sorted({sind.uf for _, sind in escolhidos})
+    cobertura_pct = round(Decimal(len(ufs_incluidas)) / Decimal(27) * 100, 1)
+
     return RankingResponse(
         codigo_padrao=codigo_padrao_norm,
         padrao_nome=padrao_nome,
@@ -631,6 +637,8 @@ def get_cub_rank(
         desoneracao=deson_slug,
         total_estados=len(ranking_items),
         media_nacional=media_nac,
+        ufs_incluidas=ufs_incluidas,
+        cobertura_pct=cobertura_pct,
         ranking=ranking_items
     )
 
@@ -827,6 +835,12 @@ def get_comparativo_regional(
             )
         )
 
+    # §5.4: UFs pedidas sem dado para o padrão+mês não podem sumir em silêncio.
+    encontradas = {sind.uf for _, sind in escolhidos}
+    nao_encontrados = list(dict.fromkeys(
+        u for u in lista_ufs if u not in encontradas
+    ))
+
     return ComparativoResponse(
         codigo_padrao=codigo_padrao_norm,
         padrao_nome=padrao_nome,
@@ -834,7 +848,8 @@ def get_comparativo_regional(
         desoneracao=deson_slug,
         total_comparados=len(items),
         media_grupo=media_grp,
-        comparativo=items
+        comparativo=items,
+        ufs_nao_encontrados=nao_encontrados
     )
 
 

@@ -48,14 +48,25 @@ padrão do bug `env` do OpenCode. **O RED decide o lado** (client × server).
       Sinduscon-GV, valor=2443.84)`; resposta nomeia id, nome e mês
       (`data_referencia` no envelope).
 
-## P1/P2 neste repo (adiados)
+## P1 concluído neste repo (2026-09-30)
 
-- §5.4 comparativo descarta UF sem aviso · §5.5 mês de referência inconsistente ·
-  §5.3 ranking duplica UF / "média nacional" sobre 9 UFs · §5.6 `cub_latest()` sem
-  paginação · §5.7 pavimentos R-8 (**reprocesso** se P2 avançar) · §5.8 aliases.
+- [x] **§5.3 ranking amostra declarada** — RED
+      `tests/integration/test_p1_ranking_comparativo.py` → fix: `RankingResponse`
+      ganha `ufs_incluidas` + `cobertura_pct` (a "média nacional" é uma amostra;
+      declarar quem compõe). GREEN ao vivo: `total=9 distintas=9 duplicatas=0;
+      média qualificada=True` (o dedup do §5.1 já tinha zerado as duplicatas).
+- [x] **§5.4 comparativo sinaliza UF ausente** — mesmo arquivo RED → fix:
+      `ComparativoResponse.ufs_nao_encontrados` lista UFs pedidas sem dado
+      (SP sem adapter). GREEN ao vivo: menções a SP: True.
+- [ ] §5.5 mês de referência — **já GREEN via §5.1** (mesmo default
+      determinístico em histórico e comparativo; gate OK).
+
+## P2 neste repo (adiado)
+
+- §5.6 `cub_latest()` sem paginação · §5.7 pavimentos R-8 (**reprocesso** se P2 avançar) ·
+  §5.8 aliases.
   → Obs. pós-§5.1: o dedup por UF (uma linha por UF, default do resolver) já
-  corrige o **mecanismo** do §5.3 e muda a média para "por estado" — revalidar
-  os achados 5.3/5.4/5.5 no P1 contra esse novo comportamento.
+  corrige o **mecanismo** do §5.3 (duplicatas=0) e faz a média "por estado".
   → Obs. nova p/ P1: testes do container gravam no Redis de produção
   (`cub:*` em `autocub-redis`, DB0) — isolar `REDIS_HOST` da suíte (P2).
 - **LIM-38** (19/27 UFs — AL AP MS RO RS SE SP TO sem adapter): limitação de
