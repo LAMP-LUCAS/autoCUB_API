@@ -61,16 +61,33 @@ padrão do bug `env` do OpenCode. **O RED decide o lado** (client × server).
 - [ ] §5.5 mês de referência — **já GREEN via §5.1** (mesmo default
       determinístico em histórico e comparativo; gate OK).
 
-## P2 neste repo (adiado)
+## Fase 5 (P2) concluída neste repo (2026-09-30)
 
-- §5.6 `cub_latest()` sem paginação · §5.7 pavimentos R-8 (**reprocesso** se P2 avançar) ·
-  §5.8 aliases.
-  → Obs. pós-§5.1: o dedup por UF (uma linha por UF, default do resolver) já
-  corrige o **mecanismo** do §5.3 (duplicatas=0) e faz a média "por estado".
-  → Obs. nova p/ P1: testes do container gravam no Redis de produção
-  (`cub:*` em `autocub-redis`, DB0) — isolar `REDIS_HOST` da suíte (P2).
-- **LIM-38** (19/27 UFs — AL AP MS RO RS SE SP TO sem adapter): limitação de
-  roadmap, **não é defeito**; não criar teste vermelho por ela.
+- [x] **§5.6 `cub_latest` paginado** — `limit` default 50, `0` = ilimitado
+      (decisão do usuário); RED `tests/test_latest_pagination.py` → fix no
+      endpoint/`response_model`; gate: `default=50 | limit=7=7 | limit=0=418`
+      (`9a9923c`).
+- [x] **Redis da suíte isolado** — testes do container não gravam mais em
+      `cub:*` do Redis de produção (`0126404`, obs. do P1).
+- [x] **§5.8 stage + fonte + aliases** — `stage` no health (produção
+      declarada `production` via `.env`), `fonte` por UF no panorama, aliases
+      `cub_dash`/`cub_impacto_desoneracao` deprecados (`6e99c0b` + seed Kong
+      `d5aa4ef`/`5b7ef7a` na casa); gate 22/22.
+- [x] **§2.2 guard** — nenhuma tool com descrição vazia (`9478c4b`).
+- [x] **§2.1 MCP resources** — RED (`resources: []`) → `resources.py` com
+      `autocub://guia/endpoints` + `autocub://referencia/padroes-nbr`
+      (`78e29bc`); suíte MCP 67→73; gate 28/28.
+- [x] **LIM-38 — nota no response** (decisão 2026-09-30, **sem RED** — o
+      claim cobre *sinalização*, nunca a cobertura): `autocub/api/lim38.py`
+      (`BR_UFS` + `NOTA_LIM38`), `/latest?uf=<sem adapter>` → envelope
+      `{uf, items: [], nota_lim38}` (UF coberta segue lista plana), nota nos
+      4 404 de cobertura (guarda: código inválido ≠ cobertura), MCP repassa
+      `detail` do 404 e `cub_get_uf` converte marcador `LIM-38` em resposta
+      (`4b255fe`); gate 30/30.
+- [x] **§5.7 pavimentos R-8 — documentado e adiado** (investigação do
+      usuário; reprocesso exige backup): nota "⚠️ Pendência conhecida" em
+      `docs/GUIA_ENDPOINTS_E_REGRAS_DE_NEGOCIO.md` §4 (`beb2702`); sem gate
+      claim, por decisão.
 
 ## Também registrado
 
