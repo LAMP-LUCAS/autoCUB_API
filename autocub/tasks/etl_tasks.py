@@ -89,11 +89,24 @@ def process_single_cub_report(
                 "data_extracao": datetime.utcnow()
             })
 
+        # STORY-MCP-007/B-01: detector de valor REPETIDO (a série de AM tem
+        # maio=junho=abril; a variação 0,00% passa pela guarda de sanidade, então
+        # precisa de um detector próprio). Marca como provisório — não descarta,
+        # porque descartar viraria buraco na série.
+        from autocub.processor import repeticao, sanity
+
+        registros = repeticao.detectar_repeticoes(records) or records
+        provisorios = [r for r in registros if r.get("dados_provisorios")]
+        if provisorios:
+            logger.warning(
+                "Série provisória em %s/%s (%s-%02d, %s): %d registro(s) com valor "
+                "repetido — marcado dados_provisorios, nada descartado",
+                uf, sinduscon_id, ano, mes, desoneracao_slug, len(provisorios),
+            )
+
         # STORY-MCP-007/C-03: guarda de sanidade — variação mensal fora da
         # faixa não entra em `cub_mensal` (foi assim que AM caiu 12% sem aviso).
-        from autocub.processor import sanity
-
-        aceitos, quarentenados = sanity.classificar_registros(records)
+        aceitos, quarentenados = sanity.classificar_registros(registros)
         count = upsert_cub_records(db, aceitos)
         status_sanidade = sanity.registrar_quarentena(
             uf, sinduscon_id, ano, mes, desoneracao_slug, quarentenados,
@@ -107,6 +120,18 @@ def process_single_cub_report(
             cache.invalidate("cub:rank:*")
 
         status_str = "CACHE_LOCAL" if is_cached else status_sanidade
+        # STORY-MCP-007/B-01: o registro de execução carrega a contagem de séries
+        # provisórias. `cub_mensal` não tem coluna para a marca (DDL em produção
+        # exige backup + migração) — a detecção é re-executável a qualquer momento
+        # por `repeticao.detectar_repeticoes` sobre os dados já carregados.
+        if provisorios and status_str not in (
+            sanity.STATUS_QUARENTENA, "CACHE_LOCAL",
+        ):
+            # `etl_execucoes.status` é varchar(20). A quarentena é o evento mais
+            # grave e PREVALECE (SUCESSO_QUARENTENA+PROV estouraria o limite);
+            # nos demais casos o status soma "+PROV" (12-16 chars). A contagem
+            # fina sempre vai em `mensagem_erro`.
+            status_str = f"{status_str}+PROV"
 
         log_etl_execution(
             db=db,
@@ -116,7 +141,12 @@ def process_single_cub_report(
             desoneracao=desoneracao_slug,
             status=status_str,
             registros=count,
-            duracao_ms=duracao_ms
+            duracao_ms=duracao_ms,
+            mensagem_erro=(
+                f"{len(provisorios)} registro(s) com valor repetido — "
+                "marcado como provisório (dados_provisorios), nada descartado"
+                if provisorios else None
+            ),
         )
 
         logger.info(

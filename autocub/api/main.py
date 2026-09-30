@@ -170,6 +170,56 @@ def health_check(db: Session = Depends(get_db)):
                 f"{ultima:%Y-%m-%d}" if hasattr(ultima, "year") else (ultima or None)
             ),
         }
+        # STORY-MCP-007/B-01: séries com valor repetido (forward-fill). A
+        # detecção roda sobre as séries carregadas — é a mesma do detector de
+        # ingestão (autocub.processor.repeticao), então o que o health declara é
+        # exatamente o que a próxima execução sinalizaria.
+        try:
+            from autocub.database.models import CubMensal, Sinduscon
+            from autocub.processor.repeticao import detectar_repeticoes
+
+            # `db.query(A, B)` devolve TUPLAS — desempacota por posição.
+            registros = [
+                {"uf": uf, "codigo_padrao": m.codigo_padrao,
+                 "desoneracao": m.desoneracao, "data_referencia": m.data_referencia,
+                 "valor_m2": m.valor_m2, "variacao_mensal_pct": m.variacao_mensal_pct}
+                for uf, m in db.query(Sinduscon.uf, CubMensal).join(
+                    CubMensal, CubMensal.sinduscon_id == Sinduscon.id
+                ).all()
+            ]
+            provisorios = detectar_repeticoes(registros)
+            por_uf: dict = {}
+            for registro in provisorios:
+                uf = registro["uf"]
+                info = por_uf.setdefault(uf, {"series": [], "registros": 0,
+                                              "motivo": "VALOR_REPETIDO_NA_SERIE"})
+                info["registros"] += 1
+                chave = f"{registro['codigo_padrao']}/{registro['desoneracao']}"
+                if chave not in info["series"]:
+                    info["series"].append(chave)
+            if por_uf:
+                cobertura["series_provisorias"] = {
+                    "ufs": sorted(por_uf),
+                    "total_registros": len(provisorios),
+                    "detalhe": por_uf,
+                    "motivo": (
+                        "Série com 2+ meses de valor idêntico: provável "
+                        "republicacao/forward-fill da fonte. Os registros NÃO "
+                        "foram descartados (virariam buraco) — estão marcados "
+                        "como provisórios. Reprocessar depende de backup e da "
+                        "confirmação da fonte (B-01)."
+                    ),
+                }
+        except Exception as exc:  # noqa: BLE001 - health nunca quebra
+            cobertura.setdefault("series_provisorias", {})
+
+        # B-07: por que cada UF está sem dado e quando sai (roadmap declarado,
+        # para o cliente não achar que é falha temporária de consulta).
+        from autocub.api.roadmap import roadmap_uf
+
+        cobertura["detalhe_ufs_sem_dado"] = {
+            uf: roadmap_uf(db, uf) for uf in cobertura.get("ufs_sem_dado", [])
+        }
     except Exception:
         cobertura = {}
 

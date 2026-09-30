@@ -13,7 +13,44 @@
 | **PI** parada em 2026-06-01 | 2 meses de defasagem | mesma causa de AC (ver 3) |
 | 8 UFs sem cotação | AL, AP, MS, RO, RS, SE, SP, TO | limitação de roadmap (LIM-38), **não** é defeito |
 
-## 2. AM — queda de 12% em todos os padrões
+## 2. AM — valor repetido (forward-fill), não "dado corrompido"
+
+> **Correção de diagnóstico (2026-09-30, após re-certificação).** A primeira
+> versão deste documento chamou a série de AM de "queda implausível" e sugeriu
+> rebase/metodologia. **A matemática está correta.** O defeito é de ingestão:
+> **maio e junho repetem o valor de abril** e julho ressincroniza de uma vez.
+
+Leitura da série real (AM · R1-N · `SEM_DESONERACAO`, `cub_mensal`):
+
+| Competência | `valor_m2` | `variacao_mensal_pct` |
+|---|---|---|
+| 2026-04 | 3897,23 | +1,57% |
+| 2026-05 | 3897,23 | **0,00%** ← repetido |
+| 2026-06 | 3897,23 | **0,00%** ← repetido |
+| 2026-07 | 3685,04 | −5,44% (ressincronização) |
+
+Em todas as transições a variação declarada confere com
+`(valor_mês / valor_mês_anterior − 1)`. O −12,44% do `CSL-16-A` é o **acúmulo**
+da defasagem até a ressincronização — não erro de cálculo.
+
+**Detector implementado (Onda D, B-01):** `autocub/processor/repeticao.py`
+identifica 2+ meses consecutivos com o mesmo valor por
+(UF, padrão, desoneração) e marca `dados_provisorios: true` +
+`alerta_valor_repetido` **sem descartar** (descartar viraria buraco na série).
+Rodado contra o banco em 2026-09-30: **6 registros de AM** (3 em maio, 3 em
+junho) e **zero** em outras UFs — ou seja, o problema é de AM, como neste
+diagnóstico.
+
+`variacao_mensal_pct = 0,00` está dentro da faixa da guarda de sanidade
+(|var| > 5%), então ela **não** detectava este caso — daí um detector próprio.
+
+**O que NÃO foi feito (decisão humana pendente):** reprocessar AM de 2026-05 a
+2026-07 contra a fonte do Sinduscon-AM. Exige backup e autorização, e depende
+de confirmar se a publicação também traz a defasagem.
+
+### 2b. Registros de AM com valor repetido (lidos do banco, 2026-09-30)
+
+
 
 Variação mensal (2026-07) por UF, `SEM_DESONERACAO`:
 
