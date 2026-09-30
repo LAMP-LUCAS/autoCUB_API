@@ -131,3 +131,33 @@ Itens **fora de escopo de código** (documentados, não corrigidos aqui):
 
 **Gate:** 39/39 (exit=0). Suítes: SINAPI API 354 · SINAPI MCP 144+ ·
 AutoCUB API 60 · AutoCUB MCP 82 · AutoINCC 122.
+
+---
+
+## RECERTIFICAÇÃO (relatório de 2026-09-30) · 4 ondas CONCLUÍDAS
+
+Segundo laudo de certificação do AutoCUB (13 tools). Veredito **medido** antes
+de cada fix: 6 de 7 itens confirmados, 1 parcialmente (B-02), 1 já entregue
+(B-06). Gate **45/45** (exit=0, 2 execuções com flush).
+
+| Onda | Itens | Entrega |
+|---|---|---|
+| A · contrato único + vigência | §4, B-03, B-05 | 1 envelope para as 13 tools (`status`/`disponivel`/`consulta`/`motivo`/`vigencia`/`alternativas`/`orientacao`); 5 tools saíram do `isError=true`; `vigencia` em toda resposta com dado; jargão `LIM-38` isolado em `nota_interna` |
+| B · linguagem de domínio | B-05, B-07 | texto do cliente sem identificador de ticket; cada UF sem dado com `motivo` + `previsto_para` |
+| C · transparência e navegação | B-02, B-04, B-06 | `data_referencia` por item no comparativo; `/latest` com `skip` e envelope de navegação (`com_meta`); `uf` declarada obrigatória em `cub_calc_area` |
+| D · dado (B-01) | B-01 | detector de valor repetido por série (o caso real: AM repete maio=junho=abril) — marca `dados_provisorios` sem descartar |
+
+**Correção de diagnóstico (B-01):** a 1ª versão deste documento (minha) chamou
+a série de AM de "queda implausível" e sugeriu rebase. A recertificação mediu e
+corrigiu: a matemática está certa, o defeito é **forward-fill na ingestão**
+(maio=junho=abril; julho ressincroniza). Documento atualizado com os valores
+lidos do banco.
+
+**B-02 (reclassificado):** o comparativo **não** misturava meses — a query filtra
+`data_referencia == data_ref` e os itens do teste estão todos em 2026-08. O
+`comparavel`/`ufs_referencia_divergente` propostos seriam código morto; ficou a
+exposição da competência por item, que é o que permite auditar a linha.
+
+**Pendências humanas (não tocaram dado):** reprocessar AM 2026-05..07 (exige
+backup + confirmação da fonte do Sinduscon-AM) e a causa da defasagem de
+AC/PI. Detalhado em `docs/DIAGNOSTICO_DADOS_AM_AC_PI.md`.
