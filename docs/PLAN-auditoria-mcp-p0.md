@@ -161,3 +161,33 @@ exposição da competência por item, que é o que permite auditar a linha.
 **Pendências humanas (não tocaram dado):** reprocessar AM 2026-05..07 (exige
 backup + confirmação da fonte do Sinduscon-AM) e a causa da defasagem de
 AC/PI. Detalhado em `docs/DIAGNOSTICO_DADOS_AM_AC_PI.md`.
+
+---
+
+## RODADA 2 (recertificação de 2026-09-30) · CONCLUÍDA
+
+Laudo de recertificação aprovou a rodada anterior **com restrição** e apontou
+2 P0 + 4 P1. Veredito medido antes de corrigir (importante: um dos P0 **não se
+confirmou**).
+
+| Item | Laudo | Medição | Entrega |
+|---|---|---|---|
+| **P0-1** dado provisório sem aviso | 🔴 P0 | 🔴 **confirmado** | detecção na **leitura**: `alertas[]` + `provisorio`/`motivo_provisorio` nas cotações; alerta filtrado por UF; ressincronização não é marcada |
+| **P0-2** `data_referencia` falsa | 🔴 P0 | 🟡 **premise falsa** — o campo vem da linha real e a query filtra `data_referencia == data_ref`; o laudo leu o **primeiro** de 3 itens de MG (o mais antigo) | provenance real: `cub_get_uf` ordena por competência decrescente e marca `recomendado` + `motivo_recomendacao`; comparativo expõe `data_referencia_solicitada`/`servida`/`criterio_periodo` |
+| **P1-1** jargão interno | 🟡 P1 | 🔴 **confirmado** (3 leaks, um deles bug meu: `env.update()` sobrescrevia o `motivo` estruturado) | `nota_interna` removido (log only); textos do calc_area e do health em linguagem de cliente; `calc_area.motivo` voltou a ser objeto |
+| **P1-2** envelope só no "sem dado" | 🟡 P1 | 🔴 **confirmado** | envelope padrão nos dois caminhos (`status`/`disponivel`/`consulta`/`items`/`total`/`vigencia`); lista plana saiu — coerência do contrato tem precedência (decisão do usuário) |
+| **P1-3** paginação | 🟡 P1 | 🟡 **parcial** — `com_meta` existia, era só descoberta | metadados em `meta_navegacao{}`; descrição da tool explica que sem `com_meta` não há como saber se truncou |
+| **P1-4** `comparavel`/divergência | 🟡 P1 | — | **não implementado de propósito**: com o filtro exato seriam sempre `true`/vazio (código morto) |
+
+**Correção de diagnóstico (P0-2):** `cub_get_uf` de UF multi-sindicato devolve
+**um item por sindicato ativo**, na ordem de inserção do banco. Em MG são 3 com
+competências diferentes (2026-08 Sinduscon-GV · 2026-07 JF · 2026-06 Sinduscon-MG).
+Ler o primeiro item não é ler "a UF" — e o primeiro era o **mais antigo**, o
+pior caso para um agente que não varrer a lista.
+
+**Gate:** 49/49 (exit=0, 2 execuções). Suítes: AutoCUB API 72 · MCP 91 ·
+SINAPI API 354 · SINAPI MCP 151 · INCC 122. `verify_mcp_docs_facts` verde.
+
+**Ainda pendente de decisão humana (nada foi reprocessado):** reprocessar AM
+2026-05..07 contra a fonte do Sinduscon-AM (exige backup) e a causa da defasagem
+de AC/PI. Ver `docs/DIAGNOSTICO_DADOS_AM_AC_PI.md`.
