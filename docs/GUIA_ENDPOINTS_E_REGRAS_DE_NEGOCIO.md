@@ -343,6 +343,21 @@ A NBR 12.721:2006 e a Lei 4.591/1964 possuem regras imutáveis que não mudam a 
 ### `GET /v1/padroes/{codigo}`
 - **Dor que resolve:** Consulta detalhada à ficha técnica arquitetônica de um projeto (número de pavimentos, quantidade de dormitórios, vagas de garagem, área real e área equivalente de projeto).
 
+### ⚠️ Pendência conhecida — `pavimentos` da família R-8 (auditoria MCP de custo §5.7, **adiada**)
+- **Achado (PROVADO, auditoria 2026-09-29):** dentro da mesma família o `pavimentos` diverge do `codigo_base`:
+
+  | Código | `codigo_base` | `pavimentos` |
+  |---|---|---|
+  | R8-A | R-8 | **10** |
+  | R8-N | R-8 | **10** |
+  | R8-B | R-8 | **8** |
+
+  O esperado para a família R-8 (térreo + 8) é **9**.
+- **Impacto:** `pavimentos` alimenta o cálculo de elevadores, Circulação e custo de áreas comuns — a divergência gera estimativas internamente contraditórias entre variantes (B/N/A) do mesmo padrão.
+- **Correção proposta:** derivar `pavimentos` de `codigo_base` como fonte única de verdade.
+- **Status (decisão do usuário, 2026-09-30):** **ADIADO** — investigação fica com o usuário. A correção implica **reprocesso de dado** (seed/ETL), que exige backup prévio — por isso ficou deliberadamente fora da Fase 5 da auditoria, que não mexe em dado. O claim do gate da casa **não** cobre §5.7.
+- **Consumidor até a resolução:** não trate `pavimentos` como invariante entre variantes do mesmo `codigo_base`; se a consistência importar, derive de `codigo_base` na camada de consumo.
+
 ---
 
 ## 5. Administração & Auditoria Forense do ETL
