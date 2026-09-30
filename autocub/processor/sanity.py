@@ -22,8 +22,8 @@ corrigir a série de AM é preciso decidir a causa (ver o diagnóstico no repo).
 from __future__ import annotations
 
 import logging
+from collections.abc import Iterable
 from decimal import Decimal
-from typing import Iterable
 
 logger = logging.getLogger("autocub.sanity")
 
@@ -45,8 +45,8 @@ def limiar_padrao() -> Decimal:
         bruto = getattr(settings, "CUB_VARIACAO_MAX_PCT", None)
         if bruto not in (None, ""):
             return Decimal(str(bruto))
-    except Exception:  # noqa: BLE001 - configuração nunca quebra a ingestão
-        pass
+    except Exception as exc:  # noqa: BLE001 - config nunca quebra a ingestão
+        logger.debug("guarda de sanidade: usando limiar padrão (%s)", exc)
     return LIMIAR_PADRAO_PCT
 
 

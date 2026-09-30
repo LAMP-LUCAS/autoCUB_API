@@ -67,7 +67,7 @@ class TestClassificar:
     def test_limiar_customizado(self):
         aceitos, quarentena = sanity.classificar_registros(
             [{"codigo_padrao": "R8-A", "variacao_mensal_pct": Decimal("6.0")}],
-            limiar=Decimal("10"),
+            limiar=Decimal(10),
         )
         assert len(aceitos) == 1 and quarentena == []
 
