@@ -13,6 +13,11 @@ class Settings(BaseSettings):
     STAGE: str = "development"
     LOG_LEVEL: str = "INFO"
 
+    # STORY-MCP-007/C-03: limiar da guarda de sanidade na ingestão. Acima
+    # disso, a variação mensal do CUB vai para quarentena (não entra em
+    # `cub_mensal`) e a execução é gravada como SUCESSO_QUARENTENA.
+    CUB_VARIACAO_MAX_PCT: float = 5.0
+
     # PostgreSQL Database
     POSTGRES_USER: str = "autocub_user"
     POSTGRES_PASSWORD: str = "autocub_pass"

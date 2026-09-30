@@ -146,6 +146,33 @@ def health_check(db: Session = Depends(get_db)):
     except Exception:
         fontes = {}
 
+    # STORY-MCP-007/C-02: a lacuna de cobertura precisa ficar VISÍVEL antes de
+    # o cliente descobrir (o relatório original só a viu Asking por UF). O
+    # `status` continua "online" — cobertura é informação de negócio, não
+    # falha de serviço.
+    cobertura: dict = {}
+    try:
+        from autocub.api.lim38 import BR_UFS
+
+        ufs_com_dado = sorted(fontes)
+        ultima = db.execute(text("SELECT MAX(data_referencia) FROM cub_mensal")).scalar()
+        # UF com sindicato cadastrado mas SEM cotação não é a mesma coisa que
+        # UF sem cadastro (ex.: RO/SE) — a causa é outra e a correção também.
+        registradas = {
+            uf for (uf,) in db.execute(text("SELECT DISTINCT uf FROM sinduscons")).all()
+        }
+        cobertura = {
+            "ufs_com_dado": len(ufs_com_dado),
+            "ufs_total": len(BR_UFS),
+            "ufs_sem_dado": sorted(BR_UFS - set(ufs_com_dado)),
+            "ufs_com_sindicado_sem_cotacao": sorted(set(ufs_com_dado) - registradas) or [],
+            "ultima_atualizacao": (
+                f"{ultima:%Y-%m-%d}" if hasattr(ultima, "year") else (ultima or None)
+            ),
+        }
+    except Exception:
+        cobertura = {}
+
     return {
         "status": "online",
         "service": settings.API_TITLE,
@@ -153,4 +180,5 @@ def health_check(db: Session = Depends(get_db)):
         "stage": settings.STAGE,
         "database": db_status,
         "fontes": fontes,
+        "cobertura": cobertura,
     }

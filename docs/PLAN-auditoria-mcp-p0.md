@@ -103,3 +103,31 @@ padrão do bug `env` do OpenCode. **O RED decide o lado** (client × server).
 
 - TDD (RED antes do fix) · contrato público das tools estável (adições, não remoções) ·
   sem credencial em log/argv/pytest · backup antes de qualquer reprocesso.
+
+---
+
+## STORY-MCP-007 — Certificação funcional (2026-09-30) · CONCLUÍDA
+
+Ondas 1–4 implementadas com TDD (RED comportamental no gate da casa → fix →
+GREEN). Veredito por item (medido ao vivo antes de cada fix) em
+`docs/projects/STORY-MCP-007-certificacao-funcional-mcp-custo.md` (casa).
+
+| Onda | Itens | Entrega |
+|---|---|---|
+| 1 | S-01, S-03, S-04, S-05 | fail-loud: erro nomeado, curva ABC sem código órfão, auditoria nomeia a última data, rótulo por tipo |
+| 2 | S-02, C-01, C-04 | preço ausente = `null`+motivo; envelope de vazio no MCP; calc_area rejeita lista e explica a falta de CUB |
+| 3 | X-01 | número é JSON number (Decimal no cálculo, float na resposta — ADR 009) |
+| 4 | C-02, C-03 | `cub_health.cobertura`; guarda de sanidade na ingestão; diagnóstico AM/AC/PI documentado |
+
+Itens **fora de escopo de código** (documentados, não corrigidos aqui):
+- C-02 dados: 6 UFs sem cadastro (AL, AP, MS, RS, SP, TO) + RO/SE sem cotação
+  — exige decisão de fonte (Sinduscon-SP) e adapter.
+- C-03 causa do rebase de AM: diagnóstico em
+  `docs/DIAGNOSTICO_DADOS_AM_AC_PI.md`; **nenhum dado foi reprocessado**
+  (exige backup + autorização).
+- S-06: não reproduzido a quente (0,23–0,28 s); medir com cache frio antes.
+- C-05: visão global já existe via `cub_latest(limit=0)` (§5.6); falta
+  `total`/`has_more` e doc da ordenação.
+
+**Gate:** 39/39 (exit=0). Suítes: SINAPI API 354 · SINAPI MCP 144+ ·
+AutoCUB API 60 · AutoCUB MCP 82 · AutoINCC 122.

@@ -89,7 +89,15 @@ def process_single_cub_report(
                 "data_extracao": datetime.utcnow()
             })
 
-        count = upsert_cub_records(db, records)
+        # STORY-MCP-007/C-03: guarda de sanidade — variação mensal fora da
+        # faixa não entra em `cub_mensal` (foi assim que AM caiu 12% sem aviso).
+        from autocub.processor import sanity
+
+        aceitos, quarentenados = sanity.classificar_registros(records)
+        count = upsert_cub_records(db, aceitos)
+        status_sanidade = sanity.registrar_quarentena(
+            uf, sinduscon_id, ano, mes, desoneracao_slug, quarentenados,
+        )
         duracao_ms = int((time.time() - start_time) * 1000)
 
         # Invalidação inteligente de cache Redis para dados atualizados
@@ -98,7 +106,7 @@ def process_single_cub_report(
             cache.invalidate("cub:br:*")
             cache.invalidate("cub:rank:*")
 
-        status_str = "CACHE_LOCAL" if is_cached else "SUCESSO"
+        status_str = "CACHE_LOCAL" if is_cached else status_sanidade
 
         log_etl_execution(
             db=db,
@@ -113,9 +121,11 @@ def process_single_cub_report(
 
         logger.info(
             f"Relatório processado: {uf} Sinduscon={sinduscon_id} "
-            f"({ano}-{mes:02d}) [{desoneracao_slug}] -> {count} registros salvos ({duracao_ms}ms)"
+            f"({ano}-{mes:02d}) [{desoneracao_slug}] -> {count} registros salvos "
+            f"({duracao_ms}ms)"
+            + (f" | {len(quarentenados)} em quarentena" if quarentenados else "")
         )
-        return count
+        return count, len(quarentenados)
 
     except Exception as e:
         duracao_ms = int((time.time() - start_time) * 1000)
@@ -131,7 +141,7 @@ def process_single_cub_report(
             mensagem_erro=str(e),
             duracao_ms=duracao_ms
         )
-        return 0
+        return 0, 0
     finally:
         db.close()
 
@@ -150,11 +160,12 @@ def process_chunk_cub(
     """
     total_registros = 0
     total_relatorios = 0
+    total_quarentena = 0
     start_time = time.time()
 
     for mes in meses:
         for deson in desoneracoes:
-            count = process_single_cub_report(
+            count, quarentenados = process_single_cub_report(
                 sinduscon_id=sinduscon_id,
                 uf=uf,
                 ano=ano,
@@ -162,6 +173,7 @@ def process_chunk_cub(
                 desoneracao_param=deson,
                 force_download=force_download
             )
+            total_quarentena += quarentenados
             if count > 0:
                 total_registros += count
                 total_relatorios += 1
@@ -178,6 +190,9 @@ def process_chunk_cub(
         "ano": ano,
         "relatorios_processados": total_relatorios,
         "registros_salvos": total_registros,
+        # STORY-MCP-007/C-03: o chunk reporta a quarentena para que o
+        # pipeline/orquestrador possa alertar sem precisar abrir o log.
+        "registros_em_quarentena": total_quarentena,
         "duracao_segundos": duracao
     }
 
