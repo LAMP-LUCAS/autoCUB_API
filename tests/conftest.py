@@ -1,3 +1,13 @@
+import os
+
+# ── Isolamento Redis da suíte (Fase 5 da auditoria de custo, obs. pós-§5.1) ──
+# A suíte roda no container com REDIS_HOST=autocub-redis apontando para o
+# DB0 (produção): endpoints com cache gravavam `cub:*` no Redis de produção
+# durante os testes. Força um DB de teste ANTES de qualquer import de
+# `autocub.*` (pydantic-settings instancia `settings` no import do módulo).
+# O claim/garantia disso é `tests/test_redis_isolamento.py`.
+os.environ["REDIS_DB"] = "15"
+
 import pytest
 from pathlib import Path
 from fastapi.testclient import TestClient
