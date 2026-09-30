@@ -69,12 +69,27 @@ Material sintetizado de `docs/GUIA_ENDPOINTS_E_REGRAS_DE_NEGOCIO.md`.
 - `ano_inicio`/`ano_fim` (opcionais) recortam séries e rankings.
 - Paginação: `cub_latest(limit=50)` é o default; `limit=0` devolve tudo
   (auditoria §5.6).
-- **LIM-38 (cobertura 19/27 UFs — roadmap, não defeito):** UF brasileira
-  sem adapter responde **sinalizada**, nunca `[]` silencioso —
-  `cub_latest(uf)` devolve `{uf, items: [], nota_lim38}` (a nota diz que o
-  dado ainda não foi disponibilizado pelo CBIC e que a equipe está
-  procurando solução); `cub_get_uf` converte o 404 nessa mesma nota; as
-  demais tools de UF respondem 404 com a nota no `detail`.
+- **Contrato único de "sem dado" (STORY-MCP-007, Onda A):** toda tool
+  responde o **mesmo** envelope quando não há dado —
+  `{status: "sem_dado", disponivel: false, consulta, motivo{codigo, descricao,
+  natureza}, vigencia, alternativas, orientacao, itens: [], total: 0}`.
+  O agente não precisa decorar um formato por tool.
+  - `natureza` diz quem resolve: `limitacao_externa` (CBIC/sindicato não
+    publica), `ingestao_pendente` (existe, não foi carregado), `defasagem`
+    (existe, para período anterior), `parametro_invalido`.
+  - `alternativas` + `orientacao.texto` transformam "não tenho" em "use isto".
+  - Nunca `content: []`; nunca erro genérico; `correlation_id` preservado.
+  - **LIM-38 (cobertura 19/27 UFs — roadmap, não defeito):** UF brasileira sem
+    CUB publicado responde `motivo.codigo = CUB_NAO_PUBLICADO_POR_UF`. O texto
+    que cita o identificador do ticket fica em `nota_interna` (rastreabilidade
+    do servidor) — **jargão interno não vai para o corpo do cliente** (B-05).
+- **Vigência (B-03):** toda resposta **com dado** traz
+  `vigencia{vigente, meses_de_atraso, ultima_publicacao_conhecida}` —
+  medida contra a competência mais recente do acervo. Em resposta em forma de
+  lista (ex.: `cub_latest`) a vigência vem **por item**; a lista plana é
+  contrato do LIM-38 para UF coberta e não vira envelope.
+  - `vigente: false` + `alerta` = o número é antigo (AC responde 2026-03
+    enquanto o acervo tem 2026-08). Confirme a vigência antes de orçar.
 
 ## Tools canônicas × aliases
 

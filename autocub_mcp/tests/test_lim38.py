@@ -15,7 +15,6 @@ Superfícies:
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
-import pytest
 from mcp.server.fastmcp import Context
 
 from autocub_mcp.client import NotFoundError
@@ -67,34 +66,51 @@ async def test_cub_get_uf_converte_404_lim38_em_resposta(monkeypatch):
 
     out = await tier_1.cub_get_uf("SP", ctx=context_with_key("fixture-key"))
 
-    assert out["uf"] == "SP"
-    assert out["encontrado"] is False
-    _assert_nota(out["nota_lim38"])
-    assert "LIM-38" in out["motivo"], "motivo perdeu o detail da API"
-    assert "correlation_id=abc" in out["motivo"], (
-        "rastreabilidade do404 descartada"
-    )
+    # Contrato único (STORY-MCP-007/B-05): o texto do cliente é linguagem de
+    # domínio e o identificador do ticket fica em `nota_interna`.
+    assert out["status"] == "sem_dado"
+    assert out["disponivel"] is False
+    assert out["motivo"]["codigo"] == "CUB_NAO_PUBLICADO_POR_UF"
+    assert out["motivo"]["natureza"] == "limitacao_externa"
+    assert "LIM-38" in out["nota_interna"]["referencia"]
+    _assert_nota(out["nota_interna"]["texto"])
+    # jargão interno NUNCA no texto voltado ao cliente
+    assert "LIM-38" not in out["motivo"]["descricao"]
+    assert "LIM-38" not in out["orientacao"]["texto"]
 
 
-async def test_cub_get_uf_404_comum_continua_erro(monkeypatch):
-    """404 sem o marcador LIM-38 (outro tipo) segue como erro — a
-    conversão não pode engolir falhas reais."""
+async def test_cub_get_uf_404_comum_vira_envelope_classificado(monkeypatch):
+    """404 sem o marcador LIM-38 também é "sem dado" — mas com OUTRO código, e
+    o envelope diz exatamente o que foi pedido (nada é engolido: falha real de
+    transporte/500 continua sendo erro)."""
     _wire(monkeypatch, side_effect=NotFoundError(
         "cub não encontrado. [correlation_id=abc]"))
 
-    with pytest.raises(NotFoundError):
-        await tier_1.cub_get_uf("SP", ctx=context_with_key("fixture-key"))
+    out = await tier_1.cub_get_uf("SP", ctx=context_with_key("fixture-key"))
+
+    assert out["status"] == "sem_dado"
+    assert out["disponivel"] is False
+    assert out["motivo"]["codigo"] == "SEM_SINDUSCON_CADASTRADO"
+    assert out["consulta"]["uf"] == "SP"
+    assert "nota_interna" not in out, "404 sem LIM-38 não gera nota interna"
 
 
 async def test_cub_latest_repassa_envelope_da_api(monkeypatch):
-    """O envelope da API (sinalização LIM-38) passa intacto pela tool."""
-    envelope = {"uf": "SP", "items": [], "nota_lim38": NOTA_LIM38}
-    _wire(monkeypatch, return_value=envelope)
+    """`cub_latest` com a sinalização da API vira o envelope ÚNICO.
+
+    Antes a tool repassa o envelope cru `{uf, items, nota_lim38}`; agora ela o
+    classifica (LIM-38 → `CUB_NAO_PUBLICADO_POR_UF`) e entrega o contrato
+    padrão, com o texto do ticket em `nota_interna`.
+    """
+    _wire(monkeypatch, return_value={"uf": "SP", "items": [], "nota_lim38": NOTA_LIM38})
 
     out = await tier_1.cub_latest(uf="SP", ctx=context_with_key("fixture-key"))
 
-    assert out is envelope
-    _assert_nota(out["nota_lim38"])
+    assert out["status"] == "sem_dado"
+    assert out["disponivel"] is False
+    assert out["itens"] == []
+    _assert_nota(out["nota_interna"]["texto"])
+    assert out["nota_interna"]["referencia"] == "LIM-38"
 
 
 def test_espelho_da_nota_bate_com_o_texto_da_api():

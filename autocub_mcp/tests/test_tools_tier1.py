@@ -76,7 +76,17 @@ async def test_route_and_auth_partition(monkeypatch, name, arguments, path, para
     monkeypatch.setattr(tier_1, "get_cache", lambda: cache)
     tool = getattr(tier_1, name)
     result = await tool(**arguments, ctx=context_with_key("fixture-key"))
-    assert result == client.get.return_value
+    # O teste é de ROTEAMENTO (path/params/auth/partição de cache). A resposta
+    # ganha `vigencia` por contrato (STORY-MCP-007), então compara-se sem ela —
+    # em lista, a vigência é POR ITEM.
+    def _sem_vigencia(v):
+        if isinstance(v, dict):
+            return {k: x for k, x in v.items() if k != "vigencia"}
+        if isinstance(v, list):
+            return [_sem_vigencia(x) for x in v]
+        return v
+
+    assert _sem_vigencia(result) == _sem_vigencia(client.get.return_value)
     client.get.assert_awaited_once_with(path, params=params or None, api_key="fixture-key")
     first_key = cache.get_or_fetch.call_args.args[0]
     await tool(**arguments, ctx=context_with_key("another-key"))

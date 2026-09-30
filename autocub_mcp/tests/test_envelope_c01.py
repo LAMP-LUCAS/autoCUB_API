@@ -1,13 +1,19 @@
-"""STORY-MCP-007/C-01 — retorno vazio do AutoCUB é explícito (ADR 010).
+"""Contrato único do AutoCUB — STORY-MCP-007 (Onda A: §4 do relatório + B-03).
 
-Medido ao vivo em 2026-09-30: `cub_get_uf(AC, 2026-07)` respondia
-`isError: false`, `content: []` (ZERO blocos) e
-`structuredContent: {"result": []}` — o agente via um retorno **em branco**,
-sem "sem dados para AC em 2026-07", e nada indicava falha.
+Antes desta onda, "sem dado" tinha 4 formatos: cinco tools devolviam **texto
+puro** com `isError=true` (o agente recebia "falha" para um dado que não existe
+— e framework trata `isError` como retry), `cub_get_uf` devolvia objeto solto e
+`cub_sinduscons_list` devolvia envelope.
 
-O envelope só entra quando o resultado é VAZIO: resultado com linhas continua
-sendo lista (o claim `claim_lim38` exige que UF coberta siga lista plana).
+Agora: um envelope só, com `status`, `disponivel`, `consulta`, `motivo`
+(código + descrição + natureza), `vigencia`, `alternativas`, `orientacao` e
+`itens: []` — nunca `content: []`, nunca erro genérico. Resposta **com dado**
+ganha `vigencia` (vigente + meses de atraso), porque AC responder 2026-03 sem
+avisar é erro de orçamento.
+
+Equivalentes vivos: claims §C-10 (envelope) e §C-11 (vigência) do gate da casa.
 """
+from decimal import Decimal
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -15,7 +21,13 @@ import pytest
 from mcp.server.fastmcp import Context
 
 from autocub_mcp import envelope
-from autocub_mcp.tools import tier_1
+from autocub_mcp.tools import tier_1, tier_2
+
+SNAPSHOT = {
+    "uf": "RJ", "codigo_padrao": "R1-N", "desoneracao": "SEM_DESONERACAO",
+    "data_referencia": "2026-08-01", "valor_m2": Decimal("2984.18"),
+    "categoria": "RESIDENCIAL", "uf_cobertura": "RJ",
+}
 
 
 def context_with_key(key: str = "fixture-key"):
@@ -23,90 +35,230 @@ def context_with_key(key: str = "fixture-key"):
     return Context(request_context=SimpleNamespace(request=request))
 
 
-def _patch(monkeypatch, client):
+def _patch(monkeypatch, client, *, uf="RJ", ref="2026-08", extra_ufs=("GO",), resultado=None):
+    """Fixa o snapshot de cobertura e o client HTTP das tools.
+
+    `resultado` sobrescreve a resposta do GET (ex.: `[]` para "sem dado").
+    O snapshot espelha o que `envelope.snapshot()` produz de verdade: chaves
+    ordenadas.
+    """
+    registros = [
+        {"uf": uf, "data_referencia": f"{ref}-01", "codigo_padrao": "R1-N",
+         "sinduscon_id": 1, "valor_m2": Decimal("2984.18")},
+    ] + [
+        {"uf": u, "data_referencia": f"{ref}-01", "codigo_padrao": "R1-N",
+         "sinduscon_id": 2, "valor_m2": Decimal("2400.00")} for u in extra_ufs
+    ]
+    envelope.limpar_cache_snapshot()
+
+    async def fake_snapshot(ctx):
+        return {
+            "ufs": {u: ref for u in ("RJ", "GO")},
+            "por_referencia": {ref: ["GO", "RJ"]},
+            "padroes_por_uf": {"RJ": {"R1-N"}, "GO": {"R1-N"}},
+            "referencia_mais_recente": ref,
+            "ufs_com_dado": ["GO", "RJ"],
+        }
+
+    monkeypatch.setattr(envelope, "snapshot", fake_snapshot)
+
     cache = AsyncMock()
 
     async def fetch(key, fetch_fn, **kwargs):
         return await fetch_fn()
 
     cache.get_or_fetch.side_effect = fetch
+    client.get.return_value = registros if resultado is None else resultado
     monkeypatch.setattr(tier_1, "get_client", lambda: client)
     monkeypatch.setattr(tier_1, "get_cache", lambda: cache)
-    return cache
+    monkeypatch.setattr(tier_2, "get_client", lambda: client)
+    monkeypatch.setattr(tier_2, "get_cache", lambda: cache)
+    return client
 
 
-class TestEnvelope:
-    def test_e_vazio_somente_lista_vazia(self):
-        assert envelope.e_vazio([]) is True
-        assert envelope.e_vazio([{"uf": "AC"}]) is False
-        assert envelope.e_vazio({}) is False
-        assert envelope.e_vazio(None) is False
+class TestVigencia:
+    def test_meses_de_atraso(self):
+        assert envelope.meses_de_atraso("2026-03-01", "2026-08-01") == 5
+        assert envelope.meses_de_atraso("2026-08-01", "2026-08-01") == 0
+        assert envelope.meses_de_atraso("2026-09-01", "2026-08-01") == 0  # nunca negativo
 
-    def test_envelope_tem_marca_e_motivo(self):
-        env = envelope.vazio()
-        assert env["items"] == []
-        assert env["sem_dados"] is True
-        assert env["motivo"] == "SEM_COTACAO_PARA_O_PERIODO"
-        assert env["total"] == 0
+    def test_vigente_quando_e_a_mais_recente(self):
+        v = envelope.vigencia("2026-08-01", "2026-08-01")
+        assert v["vigente"] is True
+        assert v["meses_de_atraso"] == 0
+        assert "alerta" not in v
 
-    def test_envelope_nao_inventa_none(self):
-        env = envelope.vazio(uf="AC", ultima_referencia_disponivel=None)
-        assert env["uf"] == "AC"
-        assert "ultima_referencia_disponivel" not in env
+    def test_defasada_traz_alerta(self):
+        v = envelope.vigencia("2026-03-01", "2026-08-01")
+        assert v["vigente"] is False
+        assert v["meses_de_atraso"] == 5
+        assert "5 mês(es)" in v["alerta"]
+        assert v["ultima_publicacao_conhecida"] == "2026-08"
+
+    def test_normaliza_date_e_string(self):
+        from datetime import date
+
+        assert envelope.vigencia(date(2026, 3, 1), "2026-08-01")["meses_de_atraso"] == 5
+        assert envelope.vigencia("2026-03", "2026-08")["meses_de_atraso"] == 5
 
 
-class TestGetUf:
+class TestCatalogo:
+    def test_todo_motivo_tem_descricao_e_natureza(self):
+        for codigo, (descricao, natureza) in envelope.CATALOGO_MOTIVOS.items():
+            assert descricao and natureza in (
+                "limitacao_externa", "ingestao_pendente", "defasagem", "parametro_invalido",
+            ), codigo
+
+    def test_motivo_tem_espelho_textual(self):
+        m = envelope.motivo("CUB_NAO_PUBLICADO_POR_UF")
+        assert m["codigo"] == "CUB_NAO_PUBLICADO_POR_UF"
+        assert m["texto"] == m["descricao"]      # espelho para leitura legada
+
+    def test_orientacao_para_cada_motivo(self):
+        for codigo in envelope.CATALOGO_MOTIVOS:
+            o = envelope._orientacao(codigo)
+            assert o["acao_recomendada"] and o["texto"] and o["risco"]
+
+
+class TestSemDado:
     @pytest.mark.asyncio
-    async def test_periodo_sem_dado_devolve_envelope_com_ultima_referencia(self, monkeypatch):
-        """AC pede 2026-07 e a última cotação é de 2026-03 — vigência vencida é
-        informação, não erro."""
-        client = AsyncMock()
-        client.get.side_effect = [
-            [],                                             # período pedido
-            [{"uf": "AC", "data_referencia": "2026-03-01"}],  # sem período
-        ]
-        _patch(monkeypatch, client)
-        out = await tier_1.cub_get_uf(uf="AC", ano=2026, mes=7, ctx=context_with_key())
-        assert isinstance(out, dict)
-        assert out["items"] == []
-        assert out["sem_dados"] is True
-        assert out["uf"] == "AC"
-        assert out["ultima_referencia_disponivel"] == "2026-03-01"
+    async def test_uf_sem_adapter_vira_envelope(self, monkeypatch):
+        from autocub_mcp.client import NotFoundError
 
-    @pytest.mark.asyncio
-    async def test_uf_com_dado_preserva_lista(self, monkeypatch):
         client = AsyncMock()
-        client.get.return_value = [{"uf": "AC", "data_referencia": "2026-03-01"}]
-        _patch(monkeypatch, client)
-        out = await tier_1.cub_get_uf(uf="AC", ctx=context_with_key())
-        assert isinstance(out, list) and out[0]["uf"] == "AC"
+        client.get.side_effect = NotFoundError("CUB não encontrado. LIM-38 [cid=abc]")
+        _patch(monkeypatch, client, uf="RJ")
 
-    @pytest.mark.asyncio
-    async def test_sem_dado_sem_nenhuma_competencia(self, monkeypatch):
-        """UF registrada mas nunca cotada: envelope sem data inventada."""
-        client = AsyncMock()
-        client.get.side_effect = [[], []]
-        _patch(monkeypatch, client)
-        out = await tier_1.cub_get_uf(uf="RO", ano=2026, mes=7, ctx=context_with_key())
-        assert out["sem_dados"] is True
-        assert "ultima_referencia_disponivel" not in out
-
-
-class TestSinduscons:
-    @pytest.mark.asyncio
-    async def test_lista_vazia_vira_envelope(self, monkeypatch):
-        client = AsyncMock()
-        client.get.return_value = []
-        _patch(monkeypatch, client)
-        out = await tier_1.cub_sinduscons_list(uf="SP", ctx=context_with_key())
-        assert isinstance(out, dict)
-        assert out["sem_dados"] is True
-        assert out["recurso"] == "/v1/sinduscons"
+        out = await tier_1.cub_get_uf("SP", ctx=context_with_key())
+        assert out["status"] == "sem_dado"
+        assert out["disponivel"] is False
+        assert out["motivo"]["codigo"] == "CUB_NAO_PUBLICADO_POR_UF"
+        assert out["consulta"]["uf"] == "SP"
+        assert out["itens"] == [] and out["total"] == 0
+        assert out["alternativas"]["ufs_com_dado"] == ["GO", "RJ"]
+        assert out["orientacao"]["acao_recomendada"] == "usar_uf_proxima"
+        # regra inviolável: sem dado não vem com número
+        assert "valor_m2" not in str(out)
 
     @pytest.mark.asyncio
-    async def test_lista_com_dado_segue_lista(self, monkeypatch):
+    async def test_404_comum_vira_sindicado_nao_cadastrado(self, monkeypatch):
+        from autocub_mcp.client import NotFoundError
+
         client = AsyncMock()
-        client.get.return_value = [{"uf": "GO", "id": 1}]
+        client.get.side_effect = NotFoundError("CUB não encontrado. [cid=abc]")
         _patch(monkeypatch, client)
-        out = await tier_1.cub_sinduscons_list(uf="GO", ctx=context_with_key())
-        assert isinstance(out, list)
+
+        out = await tier_1.cub_historico("ZZ", "R1-N", ctx=context_with_key())
+        assert out["motivo"]["codigo"] == "SEM_SINDUSCON_CADASTRADO"
+        assert out["motivo"]["natureza"] == "limitacao_externa"
+
+    @pytest.mark.asyncio
+    async def test_periodo_sem_cotacao(self, monkeypatch):
+        client = AsyncMock()
+        _patch(monkeypatch, client, resultado=[])
+
+        out = await tier_1.cub_get_uf("RJ", ano=2026, mes=7, ctx=context_with_key())
+        assert out["motivo"]["codigo"] == "SEM_COTACAO_PARA_O_PERIODO"
+        assert out["motivo"]["natureza"] == "ingestao_pendente"
+        # a UF tem dado, então a vigência da UF é aproveitada
+        assert out["vigencia"]["data_referencia"] == "2026-08"
+
+    @pytest.mark.asyncio
+    async def test_uf_que_nao_existe_no_acervo(self, monkeypatch):
+        client = AsyncMock()
+        _patch(monkeypatch, client, resultado=[])
+
+        out = await tier_1.cub_dash("XX", ctx=context_with_key())
+        assert out["motivo"]["codigo"] == "CUB_NAO_PUBLICADO_POR_UF"
+
+    @pytest.mark.asyncio
+    async def test_calc_area_sem_cub_preserva_campos_do_c04(self, monkeypatch):
+        """O envelope entra COMPLEMENTANDO o que o claim C-04 exige."""
+        client = AsyncMock()
+        client.post.return_value = {
+            "area_real_total_m2": 50.0,
+            "custo_estimado_total": None,
+            "cub_m2_aplicado": None,
+            "erro": "CUB_INDISPONIVEL_PARA_UF",
+            "motivo": "A UF SP não possui sindicato com CUB cadastrado",
+            "ufs_com_cub_mais_proximas": ["RJ", "MG"],
+            "itens": [],
+        }
+        _patch(monkeypatch, client)
+
+        out = await tier_2.cub_calc_area(
+            payload={"uf": "SP", "itens": [{"ambiente": "Sala", "area_real_m2": 50.0}]},
+            ctx=context_with_key(),
+        )
+        assert out["status"] == "sem_dado"
+        assert out["disponivel"] is False
+        assert out["consulta"]["uf"] == "SP"
+        assert out["ufs_com_cub_mais_proximas"] == ["RJ", "MG"]
+
+
+class TestComDado:
+    @pytest.mark.asyncio
+    async def test_lista_plana_preservada_com_vigencia_por_item(self, monkeypatch):
+        client = AsyncMock()
+        _patch(monkeypatch, client, ref="2026-03", extra_ufs=("GO",))
+
+        out = await tier_1.cub_latest(uf="RJ", ctx=context_with_key())
+        assert isinstance(out, list), "UF coberta continua lista plana (LIM-38)"
+        assert out[0]["vigencia"]["vigente"] is True
+        assert out[0]["vigencia"]["meses_de_atraso"] == 0
+
+    @pytest.mark.asyncio
+    async def test_item_defasado_marca_vigencia(self, monkeypatch):
+        client = AsyncMock()
+        _patch(monkeypatch, client, uf="AC", ref="2026-03", extra_ufs=("RJ",))
+
+        async def fake_snapshot(ctx):
+            return {
+                "ufs": {"AC": "2026-03", "RJ": "2026-08"},
+                "por_referencia": {"2026-03": ["AC"], "2026-08": ["RJ"]},
+                "padroes_por_uf": {"AC": {"R1-N"}, "RJ": {"R1-N"}},
+                "referencia_mais_recente": "2026-08",
+                "ufs_com_dado": ["AC", "RJ"],
+            }
+
+        monkeypatch.setattr(envelope, "snapshot", fake_snapshot)
+        out = await tier_1.cub_get_uf("AC", ctx=context_with_key())
+        item = out[0]
+        assert item["vigencia"]["vigente"] is False
+        assert item["vigencia"]["meses_de_atraso"] == 5
+        assert "5 mês(es)" in item["vigencia"]["alerta"]
+
+    @pytest.mark.asyncio
+    async def test_dicionario_recebe_vigencia_no_topo(self, monkeypatch):
+        client = AsyncMock()
+        _patch(monkeypatch, client,
+               resultado={"uf": "RJ", "data_referencia": "2026-08-01", "cotacoes": []})
+
+        out = await tier_1.cub_dash("RJ", ctx=context_with_key())
+        assert out["vigencia"]["vigente"] is True
+        assert out["vigencia"]["escopo"] == "uf"
+
+    @pytest.mark.asyncio
+    async def test_catalogo_perene_sem_vigencia_mensal(self, monkeypatch):
+        client = AsyncMock()
+        _patch(monkeypatch, client, resultado={"items": [{"codigo": "R1-N"}]})
+
+        out = await tier_1.cub_padroes_list(ctx=context_with_key())
+        assert out["vigencia"]["escopo"] == "catalogo_perene"
+        assert out["vigencia"]["meses_de_atraso"] == 0
+
+    @pytest.mark.asyncio
+    async def test_calc_area_com_cub_recebe_vigencia(self, monkeypatch):
+        client = AsyncMock()
+        client.post.return_value = {
+            "area_real_total_m2": 50.0, "custo_estimado_total": 86779.95,
+            "cub_m2_aplicado": 1735.6, "erro": None, "itens": [],
+        }
+        _patch(monkeypatch, client)
+
+        out = await tier_2.cub_calc_area(
+            payload={"uf": "RJ", "itens": [{"ambiente": "Sala", "area_real_m2": 50.0}]},
+            ctx=context_with_key(),
+        )
+        assert out["vigencia"]["vigente"] is True
+        assert "status" not in out, "com dado não recebe status de sem_dado"

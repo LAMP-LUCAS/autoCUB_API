@@ -1,8 +1,9 @@
 from decimal import Decimal
 
-from pydantic import BaseModel, Field, TypeAdapter, validate_call
 from mcp.server.fastmcp import Context
+from pydantic import BaseModel, Field, TypeAdapter, validate_call
 
+from autocub_mcp import envelope
 from autocub_mcp.auth import resolve_api_key
 from autocub_mcp.cache import cache_key
 from autocub_mcp.tools.tier_1 import get_cache, get_client
@@ -42,6 +43,31 @@ async def cub_calc_area(payload: AreaPayload, ctx: Context | None = None) -> dic
     adapter: TypeAdapter[AreaPayload] = TypeAdapter(AreaPayload)
     body = adapter.dump_python(payload, mode="json", exclude_unset=True)
     key = cache_key("POST:/v1/calc/area", {"body": body}, api_key=api_key)
-    return await get_cache().get_or_fetch(
+    resultado = await get_cache().get_or_fetch(
         key, lambda: get_client().post("/v1/calc/area", json=body, api_key=api_key)
     )
+    consulta = {"uf": (payload.uf or "").upper() or None, "recurso": "/v1/calc/area"}
+    if not isinstance(resultado, dict):
+        return resultado
+
+    # "Sem dado" = o orçamento é explicitamente nulo (`custo_estimado_total: null`)
+    # ou a API sinalizou `erro`. Se o campo AUSENTAR, tratamos como resposta com
+    # dado — API antiga não deve ser lida como falha.
+    sem_orcamento = (
+        ("custo_estimado_total" in resultado and resultado["custo_estimado_total"] is None)
+        or bool(resultado.get("erro"))
+    )
+    if sem_orcamento:
+        # Sem CUB resolvível o cálculo de área continua válido, mas o orçamento
+        # não existe. O envelope único entra COMPLEMENTANDO os campos próprios
+        # (erro/motivo/ufs_com_cub_mais_proximas, exigidos pelo claim C-04).
+        codigo = resultado.get("erro") or "CUB_NAO_PUBLICADO_POR_UF"
+        env = await envelope.sem_dado(consulta=consulta, codigo=codigo, ctx=ctx)
+        env.update(resultado)                      # preserva o cálculo e o C-04
+        env["status"] = "sem_dado"
+        env["disponivel"] = False
+        env["itens"] = env.get("itens") or []
+        env["total"] = 0
+        return env
+
+    return await envelope.com_vigencia(resultado, consulta, ctx)

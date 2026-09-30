@@ -6,7 +6,7 @@ from pydantic import validate_call
 from autocub_mcp import envelope
 from autocub_mcp.auth import resolve_api_key
 from autocub_mcp.cache import CacheManager, cache_key
-from autocub_mcp.client import APIClient, APIError, NotFoundError
+from autocub_mcp.client import APIClient, NotFoundError
 from autocub_mcp.lim38 import NOTA_LIM38
 
 _client: APIClient | None = None
@@ -45,19 +45,89 @@ def segment(value: str) -> str:
     return quote(value.upper(), safe="")
 
 
-async def _get(path: str, params: dict, ctx: Context | None) -> dict | list:
+async def _get(
+    path: str,
+    params: dict,
+    ctx: Context | None,
+    *,
+    consulta: dict | None = None,
+) -> dict | list:
+    """Choke point do contrato (STORY-MCP-007, Onda A).
+
+    Três estados, nunca misturados (ADR 010):
+
+    * **com dado** → a resposta + ``vigencia`` (o agente sabe se é atual);
+    * **sem dado** → envelope único ``{status, disponivel, consulta, motivo,
+      vigencia, alternativas, orientacao, itens: [], total: 0}``;
+    * **erro** → exceção nomeada com ``correlation_id``.
+
+    Antes desta onda, 5 tools devolviam texto puro com ``isError=true`` para um
+    dado que apenas não existe — e framework de agente trata ``isError`` como
+    sinal de retry.
+    """
     api_key = resolve_api_key(ctx)
     params = {k: v for k, v in params.items() if v is not None}
+    consulta = {**(consulta or {}), "recurso": path, "parametros": params or None}
     key = cache_key(path, params, api_key=api_key)
-    resultado = await get_cache().get_or_fetch(
-        key, lambda: get_client().get(path, params=params or None, api_key=api_key)
-    )
-    # STORY-MCP-007/C-01: lista vazia virava `content: []` (retorno em branco
-    # com isError=false). Agora é envelope explícito — o agente lê "sem dado"
-    # em vez de nada (ADR 010). Resultado COM linhas segue intacto.
+    try:
+        resultado = await get_cache().get_or_fetch(
+            key, lambda: get_client().get(path, params=params or None, api_key=api_key)
+        )
+    except NotFoundError as exc:
+        # 404 da API vira "sem dado" classificado — nunca erro genérico. O
+        # marcador LIM-38 no `detail` diz que a UF é brasileira sem adapter.
+        return await envelope.sem_dado(
+            consulta=consulta,
+            codigo=_classificar_404(str(exc)),
+            ctx=ctx,
+            nota_interna=_nota_interna_404(str(exc)),
+        )
+
     if envelope.e_vazio(resultado):
-        return envelope.vazio(recurso=path, parametros=params or None)
-    return resultado
+        return await envelope.sem_dado(
+            consulta=consulta,
+            codigo=await _classificar_vazio(consulta, resultado, ctx),
+            ctx=ctx,
+            nota_interna=envelope.nota_interna_do_api(resultado),
+        )
+    return await envelope.com_vigencia(resultado, consulta, ctx)
+
+
+def _classificar_404(mensagem: str) -> str:
+    """404 → código do catálogo. O marcador LIM-38 (detail da API) distingue
+    'UF sem adapter' de 'sindicado não cadastrado'."""
+    if "LIM-38" in mensagem:
+        return "CUB_NAO_PUBLICADO_POR_UF"
+    return "SEM_SINDUSCON_CADASTRADO"
+
+
+def _nota_interna_404(mensagem: str) -> dict | None:
+    """Rastreabilidade interna SEM vazar jargão para o cliente (B-05).
+
+    O texto com o identificador de ticket (`LIM-38`) fica aqui e no log do
+    servidor; o corpo da resposta fala linguagem de domínio.
+    """
+    if "LIM-38" not in mensagem:
+        return None
+    return {"referencia": "LIM-38", "texto": NOTA_LIM38}
+
+
+async def _classificar_vazio(consulta: dict, resultado: object, ctx) -> str:
+    """Vazio (200 sem linhas) → código do catálogo.
+
+    UF que **não aparece** no acervo é limitação externa (não publica); UF que
+    aparece mas não tem o período é ingestion pendente — são coisas diferentes
+    e a natureza do motivo muda (`limitacao_externa` x `ingestao_pendente`).
+    """
+    uf = (consulta.get("uf") or "").upper()
+    if uf:
+        snap = await envelope.snapshot(ctx)
+        if uf not in snap.get("ufs", {}):
+            return "CUB_NAO_PUBLICADO_POR_UF"
+        return "SEM_COTACAO_PARA_O_PERIODO"
+    if consulta.get("codigo_padrao"):
+        return "PADRAO_NAO_DISPONIVEL"
+    return "SEM_COTACAO_PARA_O_PERIODO"
 
 
 @validate_call
@@ -71,62 +141,18 @@ async def cub_get_uf(
 ) -> dict | list:
     """Cotações da UF no contexto informado.
 
-    LIM-38 (decisão 2026-09-30): UF brasileira válida sem adapter/dado
-    publicado **responde** com `nota_lim38` ("dado ainda não disponibilizado
-    pelo CBIC; equipe procurando solução") em vez de propagar erro — o claim
-    do gate cobre a sinalização, nunca a cobertura.
+    **Contrato único (STORY-MCP-007):** com dado → lista de cotações, cada uma
+    com `vigencia`; sem dado → envelope `{status: "sem_dado", disponivel: false,
+    motivo{codigo, descricao, natureza}, vigencia, alternativas, orientacao}`.
+    UF brasileira sem CUB publicado (LIM-38) também responde envelope — o
+    identificador do ticket fica em `nota_interna`, nunca no texto do cliente.
     """
-    try:
-        out = await _get(
-            f"/v1/cub/{segment(uf)}",
-            {"ano": ano, "mes": mes, "desoneracao": desoneracao, "sinduscon_id": sinduscon_id},
-            ctx,
-        )
-    except NotFoundError as exc:
-        # Marcador "LIM-38" vem no `detail` da API (repassado pelo client);
-        # 404 de outro tipo segue como erro.
-        if "LIM-38" in str(exc):
-            return {
-                "uf": uf.upper(),
-                "encontrado": False,
-                "nota_lim38": NOTA_LIM38,
-                "motivo": str(exc),
-            }
-        raise
-
-    if envelope.e_vazio(out) or (isinstance(out, dict) and out.get("sem_dados")):
-        # C-01 com contexto útil: quando o PERÍODO pedido não tem cotação, o
-        # agente precisa saber até quando a UF tem dado (ex.: AC pede 2026-07 e
-        # a última referência é 2026-03 — vigência vencida é alerta, não erro).
-        ultima = await _ultima_referencia(uf, desoneracao, sinduscon_id, ctx)
-        return envelope.vazio(
-            uf=uf.upper(),
-            ano=ano,
-            mes=mes,
-            ultima_referencia_disponivel=ultima,
-            motivo=("SEM_COTACAO_PARA_O_PERIODO" if ultima else envelope.MOTIVO_SEM_COTACAO),
-        )
-    return out
-
-
-async def _ultima_referencia(
-    uf: str, desoneracao: str, sinduscon_id: int | None, ctx: Context | None
-) -> str | None:
-    """Última competência com cotação da UF (ou None se nunca houve)."""
-    try:
-        sem_periodo = await get_client().get(
-            f"/v1/cub/{segment(uf)}",
-            params={k: v for k, v in
-                    {"desoneracao": desoneracao, "sinduscon_id": sinduscon_id}.items()
-                    if v is not None} or None,
-            api_key=resolve_api_key(ctx),
-        )
-    except APIError:
-        return None
-    linhas = sem_periodo if isinstance(sem_periodo, list) else []
-    refs = [str(x.get("data_referencia")) for x in linhas
-            if isinstance(x, dict) and x.get("data_referencia")]
-    return max(refs) if refs else None
+    return await _get(
+        f"/v1/cub/{segment(uf)}",
+        {"ano": ano, "mes": mes, "desoneracao": desoneracao, "sinduscon_id": sinduscon_id},
+        ctx,
+        consulta={"uf": uf.upper(), "ano": ano, "mes": mes, "desoneracao": desoneracao},
+    )
 
 
 @validate_call
@@ -148,6 +174,7 @@ async def cub_latest(
         "/v1/cub/latest",
         {"uf": uf.upper() if uf else uf, "desoneracao": desoneracao, "limit": limit},
         ctx,
+        consulta={"uf": uf.upper() if uf else None, "desoneracao": desoneracao},
     )
 
 
@@ -166,6 +193,7 @@ async def cub_panorama(
         f"/v1/cub/{segment(uf)}/dash",
         {"ano": ano, "mes": mes, "desoneracao": desoneracao, "sinduscon_id": sinduscon_id},
         ctx,
+        consulta={"uf": uf.upper(), "ano": ano, "mes": mes, "desoneracao": desoneracao},
     )
 
 
@@ -182,6 +210,7 @@ async def cub_dash(
         f"/v1/cub/{segment(uf)}/dash",
         {"ano": ano, "mes": mes, "desoneracao": desoneracao, "sinduscon_id": sinduscon_id},
         ctx,
+        consulta={"uf": uf.upper(), "ano": ano, "mes": mes, "desoneracao": desoneracao},
     )
 
 
@@ -197,6 +226,7 @@ async def cub_impacto_desoneracao(
         f"/v1/cub/{segment(uf)}/impacto-desoneracao",
         {"ano": ano, "mes": mes, "sinduscon_id": sinduscon_id},
         ctx,
+        consulta={"uf": uf.upper(), "ano": ano, "mes": mes},
     )
 
 
@@ -212,6 +242,7 @@ async def cub_deson(
         f"/v1/cub/{segment(uf)}/deson",
         {"ano": ano, "mes": mes, "sinduscon_id": sinduscon_id},
         ctx,
+        consulta={"uf": uf.upper(), "ano": ano, "mes": mes},
     )
 
 
@@ -232,6 +263,7 @@ async def cub_ranking(
             "desoneracao": desoneracao,
         },
         ctx,
+        consulta={"codigo_padrao": codigo_padrao.upper(), "ano": ano, "mes": mes},
     )
 
 
@@ -254,6 +286,8 @@ async def cub_historico(
             "sinduscon_id": sinduscon_id,
         },
         ctx,
+        consulta={"uf": uf.upper(), "codigo_padrao": codigo_padrao.upper(),
+                  "ano": ano_inicio, "desoneracao": desoneracao},
     )
 
 
@@ -276,6 +310,8 @@ async def cub_comparativo(
             "desoneracao": desoneracao,
         },
         ctx,
+        consulta={"ufs": ufs, "codigo_padrao": codigo_padrao.upper(),
+                  "ano": ano, "mes": mes},
     )
 
 
@@ -284,7 +320,8 @@ async def cub_padroes_list(
     categoria: str | None = None, padrao_acabamento: str | None = None, ctx: Context | None = None
 ) -> dict | list:
     return await _get(
-        "/v1/padroes", {"categoria": categoria, "padrao_acabamento": padrao_acabamento}, ctx
+        "/v1/padroes", {"categoria": categoria, "padrao_acabamento": padrao_acabamento}, ctx,
+        consulta={"catalogo": "padroes_nbr"},
     )
 
 
@@ -296,10 +333,11 @@ async def cub_sinduscons_list(
     ctx: Context | None = None,
 ) -> dict | list:
     return await _get(
-        "/v1/sinduscons", {"uf": uf, "regiao": regiao, "ativo_apenas": ativo_apenas}, ctx
+        "/v1/sinduscons", {"uf": uf, "regiao": regiao, "ativo_apenas": ativo_apenas}, ctx,
+        consulta={"uf": uf.upper() if uf else None, "regiao": regiao},
     )
 
 
 @validate_call
 async def cub_health(ctx: Context | None = None) -> dict | list:
-    return await _get("/v1/health", {}, ctx)
+    return await _get("/v1/health", {}, ctx, consulta={"catalogo": "saude_servico"})
