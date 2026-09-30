@@ -5,7 +5,8 @@ from mcp.server.fastmcp import Context
 
 from autocub_mcp.auth import resolve_api_key
 from autocub_mcp.cache import CacheManager, cache_key
-from autocub_mcp.client import APIClient
+from autocub_mcp.client import APIClient, NotFoundError
+from autocub_mcp.lim38 import NOTA_LIM38
 
 _client: APIClient | None = None
 _cache: CacheManager | None = None
@@ -61,11 +62,30 @@ async def cub_get_uf(
     sinduscon_id: int | None = None,
     ctx: Context | None = None,
 ) -> dict | list:
-    return await _get(
-        f"/v1/cub/{segment(uf)}",
-        {"ano": ano, "mes": mes, "desoneracao": desoneracao, "sinduscon_id": sinduscon_id},
-        ctx,
-    )
+    """Cotações da UF no contexto informado.
+
+    LIM-38 (decisão 2026-09-30): UF brasileira válida sem adapter/dado
+    publicado **responde** com `nota_lim38` ("dado ainda não disponibilizado
+    pelo CBIC; equipe procurando solução") em vez de propagar erro — o claim
+    do gate cobre a sinalização, nunca a cobertura.
+    """
+    try:
+        return await _get(
+            f"/v1/cub/{segment(uf)}",
+            {"ano": ano, "mes": mes, "desoneracao": desoneracao, "sinduscon_id": sinduscon_id},
+            ctx,
+        )
+    except NotFoundError as exc:
+        # Marcador "LIM-38" vem no `detail` da API (repassado pelo client);
+        # 404 de outro tipo segue como erro.
+        if "LIM-38" in str(exc):
+            return {
+                "uf": uf.upper(),
+                "encontrado": False,
+                "nota_lim38": NOTA_LIM38,
+                "motivo": str(exc),
+            }
+        raise
 
 
 @validate_call
@@ -78,7 +98,11 @@ async def cub_latest(
     """Cotações mais recentes com origem territorial (UF, Sinduscon, Região).
 
     §5.6: paginado — `limit` default 50; `0` = sem limite (payload completo,
-    use com moderação; sem `uf` o blob completo estoura a janela do agente)."""
+    use com moderação; sem `uf` o blob completo estoura a janela do agente).
+
+    LIM-38: UF brasileira válida sem adapter/dado publicado devolve o
+    envelope `{uf, items: [], nota_lim38}` em vez de lista vazia — a API
+    sinaliza e esta tool apenas repassa (responder > `[]`)."""
     return await _get(
         "/v1/cub/latest",
         {"uf": uf.upper() if uf else uf, "desoneracao": desoneracao, "limit": limit},

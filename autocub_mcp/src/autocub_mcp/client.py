@@ -134,7 +134,18 @@ class APIClient:
         if status == 403:
             raise ForbiddenError(f"Acesso negado ao recurso.{suffix}")
         if status == 404:
-            raise NotFoundError(f"{resolve_resource(path)} não encontrado.{suffix}")
+            # LIM-38 (auditoria MCP de custo): o `detail` da API carrega o
+            # motivo real (ex.: nota de cobertura de UF) — repasse ao chamador
+            # em vez de descartar. Corpo não-JSON (ou sem `detail` string)
+            # é ignorado para não vazar body cru na mensagem.
+            detail = ""
+            try:
+                body = response.json()
+            except ValueError:
+                body = None
+            if isinstance(body, dict) and isinstance(body.get("detail"), str):
+                detail = f" {body['detail']}"
+            raise NotFoundError(f"{resolve_resource(path)} não encontrado.{detail}{suffix}")
         if status == 429:
             delay = retry_delay(response)
             raise RateLimitError(f"Cota excedida. Aguarde {delay:g}s.{suffix}", delay)

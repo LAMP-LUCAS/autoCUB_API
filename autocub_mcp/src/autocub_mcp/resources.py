@@ -69,6 +69,12 @@ Material sintetizado de `docs/GUIA_ENDPOINTS_E_REGRAS_DE_NEGOCIO.md`.
 - `ano_inicio`/`ano_fim` (opcionais) recortam séries e rankings.
 - Paginação: `cub_latest(limit=50)` é o default; `limit=0` devolve tudo
   (auditoria §5.6).
+- **LIM-38 (cobertura 19/27 UFs — roadmap, não defeito):** UF brasileira
+  sem adapter responde **sinalizada**, nunca `[]` silencioso —
+  `cub_latest(uf)` devolve `{uf, items: [], nota_lim38}` (a nota diz que o
+  dado ainda não foi disponibilizado pelo CBIC e que a equipe está
+  procurando solução); `cub_get_uf` converte o 404 nessa mesma nota; as
+  demais tools de UF respondem 404 com a nota no `detail`.
 
 ## Tools canônicas × aliases
 

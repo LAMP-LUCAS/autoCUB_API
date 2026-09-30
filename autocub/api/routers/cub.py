@@ -1,6 +1,6 @@
 from datetime import date
 from decimal import Decimal
-from typing import List, Optional, Dict
+from typing import List, Optional, Dict, Union
 from fastapi import APIRouter, Depends, Query, HTTPException, status
 from sqlalchemy.orm import Session
 from sqlalchemy import desc, func
@@ -12,10 +12,12 @@ from autocub.api.resolvers import (
     max_data_por_sinduscon,
     resolver_sinduscon,
 )
+from autocub.api.lim38 import NOTA_LIM38, detalhe_sem_cobertura, uf_sem_adapter
 from autocub.core.cache import cache_response
 from autocub.processor.schemas import (
     CubCotacaoResponse,
     CubEstadoPeriodoResponse,
+    CubLatestResposta,
     CubHistoricoResponse,
     CubHistoricoItem,
     ComparativoResponse,
@@ -180,14 +182,17 @@ def get_cub_brasil(
 
 @router.get(
     "/latest",
-    response_model=List[CubCotacaoResponse],
+    response_model=Union[List[CubCotacaoResponse], CubLatestResposta],
     summary="Últimas cotações consolidadas com identificação de UF, Sinduscon e Região",
     description=(
         "**Dor que resolve:** Muitas APIs entregam valores soltos de CUB sem indicar claramente qual sindicato "
         "ou estado gerou aquele número, gerando ambiguidade e riscos contratuais. Este endpoint retorna as cotações "
         "mais recentes vigentes, garantindo rastreabilidade territorial completa (UF, ID e Nome do Sinduscon, Macrorregião).\n\n"
         "**Filtros:** Pode listar o panorama de todos os estados simultaneamente ou filtrar por uma UF específica. "
-        "Paginado por `limit` (default 50; `0` = sem limite — payload completo, use com moderação; §5.6 da auditoria MCP de custo)."
+        "Paginado por `limit` (default 50; `0` = sem limite — payload completo, use com moderação; §5.6 da auditoria MCP de custo).\n\n"
+        "**LIM-38 (sinalização):** UF brasileira válida sem adapter/dado publicado devolve o envelope "
+        "`{uf, items: [], nota_lim38}` com a nota de limitação de roadmap, em vez de `[]` vazio "
+        "(decisão 2026-09-30: nota no response)."
     )
 )
 def get_latest_cub(
@@ -197,6 +202,12 @@ def get_latest_cub(
     db: Session = Depends(get_db)
 ):
     """Retorna cotações recentes contendo explicitamente UF, Sinduscon e Região de origem."""
+
+    # LIM-38 (decisão 2026-09-30): UF brasileira válida sem adapter/dado
+    # publicado responde com a nota de limitação de roadmap em vez de `[]`
+    # vazio. O claim do gate cobre a sinalização, nunca a cobertura.
+    if uf and uf_sem_adapter(db, uf):
+        return CubLatestResposta(uf=uf.upper(), items=[], nota_lim38=NOTA_LIM38)
 
     deson_slug = "COM_DESONERACAO" if "com" in desoneracao.lower() else "SEM_DESONERACAO"
 
@@ -285,7 +296,8 @@ def get_cub_dash(
 
     sind = resolver_sinduscon(db, uf_upper, sinduscon_id)
     if not sind:
-        raise HTTPException(status_code=404, detail=f"Sinduscon não encontrado para a UF '{uf_upper}'.")
+        raise HTTPException(status_code=404, detail=detalhe_sem_cobertura(
+            f"Sinduscon não encontrado para a UF '{uf_upper}'.", uf_upper, db))
 
     if ano and mes:
         target_date = date(ano, mes, 1)
@@ -461,7 +473,8 @@ def get_impacto_desoneracao(
     # `sinduscon_id` era aceito e IGNORADO aqui — agora é honrado (§5.1)
     sind = resolver_sinduscon(db, uf_upper, sinduscon_id)
     if not sind:
-        raise HTTPException(status_code=404, detail=f"Sinduscon não encontrado para {uf_upper}.")
+        raise HTTPException(status_code=404, detail=detalhe_sem_cobertura(
+            f"Sinduscon não encontrado para {uf_upper}.", uf_upper, db))
 
     if ano and mes:
         target_date = date(ano, mes, 1)
@@ -685,7 +698,8 @@ def get_historico_padrao(
 
     sind = resolver_sinduscon(db, uf_upper, sinduscon_id)
     if not sind:
-        raise HTTPException(status_code=404, detail=f"Sinduscon não encontrado para {uf_upper}.")
+        raise HTTPException(status_code=404, detail=detalhe_sem_cobertura(
+            f"Sinduscon não encontrado para {uf_upper}.", uf_upper, db))
 
     padrao = db.query(PadraoProjeto).filter(PadraoProjeto.codigo == codigo_padrao_norm).first()
     padrao_nome = padrao.nome if padrao else codigo_padrao_norm
@@ -890,7 +904,8 @@ def get_cub_by_uf(
 
     sinduscons = sinds_query.all()
     if not sinduscons:
-        raise HTTPException(status_code=404, detail=f"Nenhum Sinduscon para {uf_upper}.")
+        raise HTTPException(status_code=404, detail=detalhe_sem_cobertura(
+            f"Nenhum Sinduscon para {uf_upper}.", uf_upper, db))
 
     response_list = []
     for sind in sinduscons:

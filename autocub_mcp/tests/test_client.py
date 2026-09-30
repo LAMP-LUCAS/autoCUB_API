@@ -43,6 +43,32 @@ async def test_post(client):
     assert client._client.request.call_args.kwargs["json"] == [{"area_real_m2": "1.20"}]
 
 
+async def test_404_repassa_detail_da_api(client):
+    """LIM-38: o `detail` do 404 da API carrega o motivo real (ex.: nota de
+    cobertura de UF) — o client repassa em vez de descartar."""
+    client._client.request.return_value = httpx.Response(
+        404,
+        json={"detail": "Nenhum Sinduscon para SP. Dado de CUB ainda não "
+                        "disponibilizado pelo CBIC (LIM-38)."},
+    )
+    with pytest.raises(NotFoundError) as exc:
+        await client.get("/v1/cub/SP", api_key="fixture-key")
+    texto = str(exc.value)
+    assert "Nenhum Sinduscon para SP" in texto
+    assert "LIM-38" in texto
+    assert "correlation_id=" in texto
+
+
+async def test_404_corpo_nao_json_nao_vaza_body(client):
+    """Corpo não-JSON (ou sem `detail` string) é ignorado — o body nunca
+    entra na mensagem (guarda do fixture-key de test_mapping_no_retry)."""
+    client._client.request.return_value = httpx.Response(404, text="raw-body")
+    with pytest.raises(NotFoundError) as exc:
+        await client.get("/v1/cub/SP", api_key="fixture-key")
+    assert "raw-body" not in str(exc.value)
+    assert "correlation_id=" in str(exc.value)
+
+
 @pytest.mark.parametrize(
     "status,error",
     [

@@ -73,6 +73,15 @@ class CubCotacaoResponse(BaseModel):
     data_referencia: date
 
 
+class CubLatestResposta(BaseModel):
+    """Envelope de `/latest` quando a UF consultada não tem adapter/dado
+    publicado (LIM-38 — decisão 2026-09-30: nota no response, em vez de
+    `[]` vazio). O caminho normal continua sendo a lista plana."""
+    uf: Optional[str] = None
+    items: List[CubCotacaoResponse] = Field(default_factory=list)
+    nota_lim38: str
+
+
 class CubEstadoPeriodoResponse(BaseModel):
     uf: str
     sinduscon_id: int
