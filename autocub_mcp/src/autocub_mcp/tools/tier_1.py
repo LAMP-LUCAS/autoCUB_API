@@ -70,10 +70,19 @@ async def cub_get_uf(
 
 @validate_call
 async def cub_latest(
-    uf: str | None = None, desoneracao: str = "SEM_DESONERACAO", ctx: Context | None = None
+    uf: str | None = None,
+    desoneracao: str = "SEM_DESONERACAO",
+    limit: int = 50,
+    ctx: Context | None = None,
 ) -> dict | list:
+    """Cotações mais recentes com origem territorial (UF, Sinduscon, Região).
+
+    §5.6: paginado — `limit` default 50; `0` = sem limite (payload completo,
+    use com moderação; sem `uf` o blob completo estoura a janela do agente)."""
     return await _get(
-        "/v1/cub/latest", {"uf": uf.upper() if uf else uf, "desoneracao": desoneracao}, ctx
+        "/v1/cub/latest",
+        {"uf": uf.upper() if uf else uf, "desoneracao": desoneracao, "limit": limit},
+        ctx,
     )
 
 

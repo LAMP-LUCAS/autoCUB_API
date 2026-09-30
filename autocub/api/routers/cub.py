@@ -186,12 +186,14 @@ def get_cub_brasil(
         "**Dor que resolve:** Muitas APIs entregam valores soltos de CUB sem indicar claramente qual sindicato "
         "ou estado gerou aquele número, gerando ambiguidade e riscos contratuais. Este endpoint retorna as cotações "
         "mais recentes vigentes, garantindo rastreabilidade territorial completa (UF, ID e Nome do Sinduscon, Macrorregião).\n\n"
-        "**Filtros:** Pode listar o panorama de todos os estados simultaneamente ou filtrar por uma UF específica."
+        "**Filtros:** Pode listar o panorama de todos os estados simultaneamente ou filtrar por uma UF específica. "
+        "Paginado por `limit` (default 50; `0` = sem limite — payload completo, use com moderação; §5.6 da auditoria MCP de custo)."
     )
 )
 def get_latest_cub(
     uf: Optional[str] = Query(None, description="Filtrar por UF (ex: GO, MG, RJ). Se omitido, lista todas as UFs ativas.", examples=["GO"]),
     desoneracao: str = Query("SEM_DESONERACAO", description="'SEM_DESONERACAO' ou 'COM_DESONERACAO'", examples=["SEM_DESONERACAO"]),
+    limit: int = Query(50, ge=0, description="Máximo de registros retornados (default 50). `0` = sem limite (payload completo).", examples=[50]),
     db: Session = Depends(get_db)
 ):
     """Retorna cotações recentes contendo explicitamente UF, Sinduscon e Região de origem."""
@@ -228,6 +230,8 @@ def get_latest_cub(
     )
 
     results = query.order_by(Sinduscon.uf, CubMensal.codigo_padrao).all()
+    if limit:
+        results = results[:limit]
 
     return [
         CubCotacaoResponse(

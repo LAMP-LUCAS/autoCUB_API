@@ -232,6 +232,7 @@ Muitos sistemas exibem apenas o valor financeiro do CUB sem vincular à UF ou à
 #### 📥 Parâmetros Query
 - `uf` (str, opcional): Filtrar por sigla da UF (ex: `GO`). Se omitido, lista todas as UFs ativas do país.
 - `desoneracao` (str, opcional): `SEM_DESONERACAO` ou `COM_DESONERACAO`.
+- `limit` (int, opcional, padrão: `50`): Máximo de registros retornados. `0` = sem limite (payload completo — §5.6 da auditoria MCP de custo; sem `uf` o blob completo estoura a janela de contexto do agente).
 
 ---
 
