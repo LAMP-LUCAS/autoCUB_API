@@ -30,8 +30,10 @@ TOOLS = (
         tier_2.cub_calc_area,
         "Calcula área equivalente em m² (NBR 12.721) e custo estimativo via REST, "
         "sem persistência. **Tipagem (ADR 009):** todo valor numérico da resposta é "
-        "JSON number (float), nunca string; datas são string ISO. Sem CUB para a UF, "
-        "a resposta traz `erro` + `motivo` + `ufs_com_cub_mais_proximas`.",
+        "JSON number (float), nunca string; datas são string ISO. "
+        "**`uf` é obrigatória para orçar**: sem `cub_m2` nem `uf` a resposta vem com "
+        "`erro: CUB_NAO_INFORMADO`. Sem CUB para a UF, traz "
+        "`erro: CUB_INDISPONIVEL_PARA_UF` + `motivo` + `ufs_com_cub_mais_proximas`.",
     ),
 )
 

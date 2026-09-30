@@ -160,6 +160,8 @@ async def cub_latest(
     uf: str | None = None,
     desoneracao: str = "SEM_DESONERACAO",
     limit: int = 50,
+    skip: int = 0,
+    com_meta: bool = False,
     ctx: Context | None = None,
 ) -> dict | list:
     """Cotações mais recentes com origem territorial (UF, Sinduscon, Região).
@@ -167,15 +169,51 @@ async def cub_latest(
     §5.6: paginado — `limit` default 50; `0` = sem limite (payload completo,
     use com moderação; sem `uf` o blob completo estoura a janela do agente).
 
-    LIM-38: UF brasileira válida sem adapter/dado publicado devolve o
-    envelope `{uf, items: [], nota_lim38}` em vez de lista vazia — a API
-    sinaliza e esta tool apenas repassa (responder > `[]`)."""
-    return await _get(
+    **B-04 (navegabilidade):** o acervo tem ~19 registros por UF, então `limit`
+    sozinho não diz se há mais (`limit=50` devolve 3 UFs, e cobrir todas exige
+    ~600). Passe `com_meta=true` para receber o envelope
+    `{items, total, skip, limit, has_more, ufs_no_periodo}` e poder paginar de
+    verdade; sem `com_meta` a resposta segue sendo **lista plana** — contrato do
+    LIM-38 para UF coberta, que o claim `claim_lim38` exige.
+
+    Cada item traz `vigencia` (competência e meses de atraso).
+
+    LIM-38: UF brasileira válida sem CUB publicado devolve o envelope único de
+    "sem dado" (`status: "sem_dado"`, `motivo.codigo` =
+    `CUB_NAO_PUBLICADO_POR_UF`); o texto do ticket fica em `nota_interna`."""
+    resultado = await _get(
         "/v1/cub/latest",
-        {"uf": uf.upper() if uf else uf, "desoneracao": desoneracao, "limit": limit},
+        {
+            "uf": uf.upper() if uf else uf,
+            "desoneracao": desoneracao,
+            "limit": limit,
+            "skip": skip,
+        },
         ctx,
         consulta={"uf": uf.upper() if uf else None, "desoneracao": desoneracao},
     )
+    if not com_meta or not isinstance(resultado, list):
+        return resultado
+
+    # Envelope de navegação. O `total` é o **acervo completo** (já contido no
+    # snapshot cacheado — nenhuma chamada extra), não uma estimativa: número
+    # inventado em envelope de navegação seria exatamente o defeito que este
+    # trabalho elimina.
+    snap = await envelope.snapshot(ctx)
+    itens = resultado
+    total = snap.get("total_registros") or len(itens) + skip
+    return {
+        "items": itens,
+        "total": total,
+        "skip": skip,
+        "limit": limit,
+        "has_more": skip + len(itens) < total,
+        "ufs_no_periodo": sorted({i.get("uf") for i in itens if isinstance(i, dict)}),
+        "nota": (
+            "Envelope de navegação (com_meta=true). Sem este parâmetro a tool "
+            "devolve lista plana — contrato preservado para o LIM-38."
+        ),
+    }
 
 
 @validate_call

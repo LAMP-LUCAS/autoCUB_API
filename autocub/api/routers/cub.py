@@ -189,7 +189,9 @@ def get_cub_brasil(
         "ou estado gerou aquele número, gerando ambiguidade e riscos contratuais. Este endpoint retorna as cotações "
         "mais recentes vigentes, garantindo rastreabilidade territorial completa (UF, ID e Nome do Sinduscon, Macrorregião).\n\n"
         "**Filtros:** Pode listar o panorama de todos os estados simultaneamente ou filtrar por uma UF específica. "
-        "Paginado por `limit` (default 50; `0` = sem limite — payload completo, use com moderação; §5.6 da auditoria MCP de custo).\n\n"
+        "Paginado por `limit` + `skip` (default 50; `0` = sem limite — payload completo, use com moderação; "
+        "§5.6 da auditoria MCP de custo). A ordenação é **estável** (por UF e depois por padrão), "
+        "então `skip`/`limit` paginam de forma previsível (B-04).\n\n"
         "**LIM-38 (sinalização):** UF brasileira válida sem adapter/dado publicado devolve o envelope "
         "`{uf, items: [], nota_lim38}` com a nota de limitação de roadmap, em vez de `[]` vazio "
         "(decisão 2026-09-30: nota no response)."
@@ -199,6 +201,7 @@ def get_latest_cub(
     uf: Optional[str] = Query(None, description="Filtrar por UF (ex: GO, MG, RJ). Se omitido, lista todas as UFs ativas.", examples=["GO"]),
     desoneracao: str = Query("SEM_DESONERACAO", description="'SEM_DESONERACAO' ou 'COM_DESONERACAO'", examples=["SEM_DESONERACAO"]),
     limit: int = Query(50, ge=0, description="Máximo de registros retornados (default 50). `0` = sem limite (payload completo).", examples=[50]),
+    skip: int = Query(0, ge=0, description="Registros a saltar antes de `limit` (paginação server-side, STORY-MCP-007/B-04). A ordenação é estável: por UF e depois por `codigo_padrao`.", examples=[0]),
     db: Session = Depends(get_db)
 ):
     """Retorna cotações recentes contendo explicitamente UF, Sinduscon e Região de origem."""
@@ -240,7 +243,12 @@ def get_latest_cub(
         .filter(CubMensal.desoneracao == deson_slug)
     )
 
+    # B-04: ordenação estável (UF → padrão) para que `skip`/`limit` paginem de
+    # forma previsível. Sem isso, `limit=50` devolvia as 3 primeiras UFs e o
+    # agente não tinha como saber que havia mais.
     results = query.order_by(Sinduscon.uf, CubMensal.codigo_padrao).all()
+    if skip:
+        results = results[skip:]
     if limit:
         results = results[:limit]
 
@@ -853,7 +861,10 @@ def get_comparativo_regional(
                 valor_m2=cub.valor_m2,
                 diferenca_media_reais=diff,
                 diferenca_media_pct=diff_pct,
-                variacao_mensal_pct=cub.variacao_mensal_pct
+                variacao_mensal_pct=cub.variacao_mensal_pct,
+                # STORY-MCP-007/B-02: competência do item, para o agente auditar
+                # cada linha sem inferir a partir do envelope.
+                data_referencia=cub.data_referencia,
             )
         )
 

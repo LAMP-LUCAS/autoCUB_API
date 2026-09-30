@@ -22,13 +22,13 @@ CASES = [
         "cub_latest",
         {},
         "/v1/cub/latest",
-        {"desoneracao": "SEM_DESONERACAO", "limit": 50},
+        {"desoneracao": "SEM_DESONERACAO", "limit": 50, "skip": 0},
     ),
     (
         "cub_latest",
         {"limit": 0},
         "/v1/cub/latest",
-        {"desoneracao": "SEM_DESONERACAO", "limit": 0},
+        {"desoneracao": "SEM_DESONERACAO", "limit": 0, "skip": 0},
     ),
     # §5.8: canônica aponta para a rota REST canônica (/dash); a rota legada
     # /panorama continua servida pela API para compatibilidade.

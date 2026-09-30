@@ -220,6 +220,8 @@ async def snapshot(ctx) -> dict:
     from autocub_mcp.tools.tier_1 import get_cache, get_client
 
     api_key = resolve_api_key(ctx)
+    # limit=0 pede o acervo completo: com ele sabemos o total real de registros
+    # (navegação do B-04) sem estimar nada.
     chave = cache_key("/v1/cub/latest", {"limit": 0, "desoneracao": "SEM_DESONERACAO"},
                       api_key=api_key)
     try:
@@ -259,9 +261,16 @@ async def snapshot(ctx) -> dict:
         "padroes_por_uf": padroes_por_uf,
         "referencia_mais_recente": max(por_uf.values()) if por_uf else None,
         "ufs_com_dado": sorted(por_uf),
+        # total real de registros do acervo (B-04): o `limit=0` já traz tudo.
+        "total_registros": _total_registros(registros),
     }
     _snapshot_cache["valor"] = valor
     return valor
+
+
+def _total_registros(registros: object) -> int:
+    """Contagem real dos registros recebidos no acervo (sem estimativa)."""
+    return len(registros) if isinstance(registros, list) else 0
 
 
 async def _alternativas(consulta: dict, snap: dict) -> dict:

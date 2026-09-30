@@ -125,6 +125,11 @@ class ComparativoItem(BaseModel):
     regiao: Optional[str] = None
     valor_m2: Num
     variacao_mensal_pct: Optional[Num] = None
+    data_referencia: Optional[date] = None
+    """STORY-MCP-007/B-02: a competência **deste** item. A consulta usa uma
+    data única, então hoje coincide com o envelope — mas expor por item é o que
+    permite ao agente auditar cada linha sem inferir, e detectar divergência se
+    a consulta passar a admitir referências distintas por UF."""
 
 
 class ComparativoResponse(BaseModel):

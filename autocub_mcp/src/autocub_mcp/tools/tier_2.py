@@ -36,8 +36,13 @@ async def cub_calc_area(payload: AreaPayload, ctx: Context | None = None) -> dic
     (`float`) — nunca string. Some e multiplique direto; datas seguem string
     ISO. `Decimal` só existe dentro do cálculo, não na resposta.
 
-    Sem CUB resolvível para a UF, a resposta traz `erro` + `motivo` +
-    `ufs_com_cub_mais_proximas` (nunca `custo_estimado_total: null` mudo).
+    **`uf` é obrigatória para orçar** (B-06): sem `cub_m2` nem `uf`, a resposta
+    vem com `erro: CUB_NAO_INFORMADO` e `motivo` explicando o que enviar. Sem
+    CUB para a UF, vem `erro: CUB_INDISPONIVEL_PARA_UF` + `motivo` +
+    `ufs_com_cub_mais_proximas` — nunca `custo_estimado_total: null` mudo.
+
+    O payload é sempre um objeto `CalculoAreaRequest` (a forma-lista foi
+    removida: perdia a UF e o cálculo voltava sem orçamento).
     """
     api_key = resolve_api_key(ctx)
     adapter: TypeAdapter[AreaPayload] = TypeAdapter(AreaPayload)
