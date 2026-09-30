@@ -390,6 +390,45 @@ A NBR 12.721:2006 e a Lei 4.591/1964 possuem regras imutáveis que não mudam a 
 
 ---
 
+## 7. Tipagem da resposta: número é `number` (ADR 009)
+
+**Regra:** todo valor numérico sai como **JSON number** (`float`), nunca string.
+Datas continuam string ISO (`YYYY-MM-DD`).
+
+Exemplo de resposta de `POST /v1/calc/area` (correto, pós-ADR 009):
+
+```json
+{
+  "area_real_total_m2": 33.1,
+  "area_equivalente_total_m2": 34.42,
+  "fator_equivalente_medio": 1.0417,
+  "cub_m2_aplicado": 2986.72,
+  "custo_estimado_total": 102894.53
+}
+```
+
+> Antes de 2026-09-30 os mesmos campos vinham como `"33.10"`, `"102894.53"`.
+> O consumidor (agente, planilha, cliente tipado) tinha que parsear texto antes
+> de somar — a pior falha possível num orçamento.
+
+**Onde o `Decimal` continua:** dentro do cálculo (CUB/m², área equivalente,
+ponderações NBR 12.721, variação mensal) e no banco (`NUMERIC`). O tipo
+`Num` (`autocub/core/numerico.py`) converte **só** na serialização:
+
+```python
+Num = Annotated[Decimal, PlainSerializer(float, return_type=float, when_used="json")]
+```
+
+**Exceção deliberada:** `CubItemExtracted` (schema de **ingestão**, não de
+resposta) permanece `Decimal` — a precisão precisa chegar intacta ao banco.
+
+**Precisão:** `float` tem ~15–17 dígitos significativos. Quem precisar de
+exatidão contábil usa a fonte (CBIC/SGS) ou o banco; o consumidor previsto
+(humano, agente, planilha) não perde informação relevante.
+
+Cache: a API usa `model_dump(mode="json")` — a mudança vale para o cache
+junto, então **flush das camadas de cache** é parte da ativação.
+
 ## 💡 Resumo das Rotas e Aliases Byte-Saving
 
 | Rota Canônica (Curta / Byte-Saving) | Alias Descritivo (Retrocompatibilidade) | Objetivo Principal |

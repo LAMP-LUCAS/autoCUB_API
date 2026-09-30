@@ -29,6 +29,15 @@ AreaPayload = CalculoAreaRequest
 
 @validate_call
 async def cub_calc_area(payload: AreaPayload, ctx: Context | None = None) -> dict | list:
+    """Calcula área equivalente (NBR 12.721) e o custo estimado da obra.
+
+    **Tipagem (ADR 009):** todo valor numérico da resposta é JSON **number**
+    (`float`) — nunca string. Some e multiplique direto; datas seguem string
+    ISO. `Decimal` só existe dentro do cálculo, não na resposta.
+
+    Sem CUB resolvível para a UF, a resposta traz `erro` + `motivo` +
+    `ufs_com_cub_mais_proximas` (nunca `custo_estimado_total: null` mudo).
+    """
     api_key = resolve_api_key(ctx)
     adapter: TypeAdapter[AreaPayload] = TypeAdapter(AreaPayload)
     body = adapter.dump_python(payload, mode="json", exclude_unset=True)

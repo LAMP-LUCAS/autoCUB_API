@@ -2,6 +2,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import List, Optional, Dict
 from pydantic import BaseModel, Field, ConfigDict
+from autocub.core.numerico import Num  # ADR 009
 
 
 class CubItemExtracted(BaseModel):
@@ -10,7 +11,7 @@ class CubItemExtracted(BaseModel):
     codigo_base: str
     codigo_canonico: str
     valor_m2: Decimal
-    variacao_pct: Optional[Decimal] = None
+    variacao_pct: Optional[Num] = None
 
 
 class CubRelatorioExtracted(BaseModel):
@@ -37,8 +38,8 @@ class PadraoResponse(BaseModel):
     categoria: str
     padrao_acabamento: str
     pavimentos: Optional[int] = None
-    area_real: Optional[Decimal] = None
-    area_equivalente: Optional[Decimal] = None
+    area_real: Optional[Num] = None
+    area_equivalente: Optional[Num] = None
     dormitorios: Optional[int] = None
     vagas_garagem: Optional[int] = None
     elevadores: Optional[int] = None
@@ -67,8 +68,8 @@ class CubCotacaoResponse(BaseModel):
     padrao_nome: Optional[str] = None
     categoria: Optional[str] = None
     padrao_acabamento: Optional[str] = None
-    valor_m2: Decimal
-    variacao_mensal_pct: Optional[Decimal] = None
+    valor_m2: Num
+    variacao_mensal_pct: Optional[Num] = None
     desoneracao: str
     data_referencia: date
 
@@ -95,9 +96,9 @@ class CubEstadoPeriodoResponse(BaseModel):
 
 class CubHistoricoItem(BaseModel):
     data_referencia: date
-    valor_m2: Decimal
-    variacao_mensal_pct: Optional[Decimal] = None
-    variacao_acumulada_pct: Optional[Decimal] = None
+    valor_m2: Num
+    variacao_mensal_pct: Optional[Num] = None
+    variacao_acumulada_pct: Optional[Num] = None
 
 
 class CubHistoricoResponse(BaseModel):
@@ -108,12 +109,12 @@ class CubHistoricoResponse(BaseModel):
     padrao_nome: str
     desoneracao: str
     total_meses: int
-    valor_inicial: Optional[Decimal] = None
-    valor_final: Optional[Decimal] = None
-    variacao_acumulada_periodo_pct: Optional[Decimal] = None
-    variacao_media_mensal_pct: Optional[Decimal] = None
-    menor_valor_m2: Optional[Decimal] = None
-    maior_valor_m2: Optional[Decimal] = None
+    valor_inicial: Optional[Num] = None
+    valor_final: Optional[Num] = None
+    variacao_acumulada_periodo_pct: Optional[Num] = None
+    variacao_media_mensal_pct: Optional[Num] = None
+    menor_valor_m2: Optional[Num] = None
+    maior_valor_m2: Optional[Num] = None
     serie_historica: List[CubHistoricoItem]
 
 
@@ -122,8 +123,8 @@ class ComparativoItem(BaseModel):
     sinduscon_id: int
     sinduscon_nome: str
     regiao: Optional[str] = None
-    valor_m2: Decimal
-    variacao_mensal_pct: Optional[Decimal] = None
+    valor_m2: Num
+    variacao_mensal_pct: Optional[Num] = None
 
 
 class ComparativoResponse(BaseModel):
@@ -132,7 +133,7 @@ class ComparativoResponse(BaseModel):
     data_referencia: date
     desoneracao: str
     total_comparados: int
-    media_grupo: Decimal
+    media_grupo: Num
     comparativo: List[ComparativoItem]
     ufs_nao_encontrados: List[str] = []
     """§5.4: UFs pedidas no `ufs` sem sinduscon/dado para o padrão+mês —
@@ -146,15 +147,15 @@ class ComparativoResponse(BaseModel):
 class ProjetoDestaque(BaseModel):
     codigo: str
     nome: str
-    valor_m2: Optional[Decimal] = None
-    variacao_pct: Optional[Decimal] = None
+    valor_m2: Optional[Num] = None
+    variacao_pct: Optional[Num] = None
 
 
 class PanoramaMetricas(BaseModel):
-    media_geral_m2: Decimal
-    media_residencial_m2: Decimal
-    media_comercial_m2: Decimal
-    media_especial_m2: Decimal
+    media_geral_m2: Num
+    media_residencial_m2: Num
+    media_comercial_m2: Num
+    media_especial_m2: Num
     maior_custo: ProjetoDestaque
     menor_custo: ProjetoDestaque
     maior_alta_mensal: Optional[ProjetoDestaque] = None
@@ -163,7 +164,7 @@ class PanoramaMetricas(BaseModel):
 
 class BlocoPadroes(BaseModel):
     total_projetos: int
-    media_m2: Decimal
+    media_m2: Num
     projetos: List[CubCotacaoResponse]
 
 
@@ -194,10 +195,10 @@ class ItemImpactoDesoneracao(BaseModel):
     padrao_nome: str
     categoria: str
     padrao_acabamento: str
-    valor_sem_desoneracao: Decimal
-    valor_com_desoneracao: Decimal
-    economia_reais_m2: Decimal
-    economia_percentual: Decimal
+    valor_sem_desoneracao: Num
+    valor_com_desoneracao: Num
+    economia_reais_m2: Num
+    economia_percentual: Num
 
 
 class ImpactoDesoneracaoResponse(BaseModel):
@@ -205,8 +206,8 @@ class ImpactoDesoneracaoResponse(BaseModel):
     sinduscon_id: int
     sinduscon_nome: str
     data_referencia: date
-    economia_media_reais_m2: Decimal
-    economia_media_percentual: Decimal
+    economia_media_reais_m2: Num
+    economia_media_percentual: Num
     projetos: List[ItemImpactoDesoneracao]
 
 
@@ -216,9 +217,9 @@ class RankingItem(BaseModel):
     sinduscon_id: int
     sinduscon_nome: str
     regiao: str
-    valor_m2: Decimal
-    variacao_mensal_pct: Optional[Decimal] = None
-    desvio_media_pct: Decimal
+    valor_m2: Num
+    variacao_mensal_pct: Optional[Num] = None
+    desvio_media_pct: Num
 
 
 class RankingResponse(BaseModel):
@@ -227,7 +228,7 @@ class RankingResponse(BaseModel):
     data_referencia: date
     desoneracao: str
     total_estados: int
-    media_nacional: Decimal
+    media_nacional: Num
     ufs_incluidas: List[str] = []
     """§5.3: UFs que efetivamente entraram na média (a "média nacional" é
     uma AMOSTRA — declarar quem compõe, nunca esconder a cobertura)."""
@@ -248,18 +249,18 @@ class CubBrasilItem(BaseModel):
     sinduscon_nome: str
     regiao: str
     projeto_representativo: str
-    peso_relativo: Decimal
-    valor_m2: Decimal
-    participacao_efetiva_pct: Decimal
+    peso_relativo: Num
+    valor_m2: Num
+    participacao_efetiva_pct: Num
 
 
 class CubBrasilResponse(BaseModel):
     data_referencia: date
     desoneracao: str
-    cub_medio_brasil: Decimal
+    cub_medio_brasil: Num
     total_estados_ponderados: int
-    soma_pesos: Decimal
-    por_regiao: Dict[str, Decimal]
+    soma_pesos: Num
+    por_regiao: Dict[str, Num]
     estados: List[CubBrasilItem]
 
 
@@ -269,13 +270,13 @@ class AreaItemInput(BaseModel):
         description="Nome ou tipo do ambiente (ex: 'Apartamento Privativo', 'Garagem Coberta', 'Varanda Gourmet', 'Pilotis').",
         examples=["Apartamento Privativo"]
     )
-    area_real_m2: Decimal = Field(
+    area_real_m2: Num = Field(
         ...,
         gt=0,
         description="Área real física construída do ambiente em metros quadrados (m²).",
         examples=[Decimal("120.00")]
     )
-    fator_ponderacao: Optional[Decimal] = Field(
+    fator_ponderacao: Optional[Num] = Field(
         None,
         ge=0,
         le=2.0,
@@ -297,7 +298,7 @@ class CalculoAreaRequest(BaseModel):
             ]
         ]
     )
-    cub_m2: Optional[Decimal] = Field(
+    cub_m2: Optional[Num] = Field(
         None,
         gt=0,
         description="Valor do CUB/m² (R$) para estimativa de custo global. Se informado, calcula o valor orçado (Área Equivalente × CUB).",
@@ -317,17 +318,17 @@ class CalculoAreaRequest(BaseModel):
 
 class AreaItemOutput(BaseModel):
     ambiente: str = Field(..., description="Nome ou tipo do ambiente informado.")
-    area_real_m2: Decimal = Field(..., description="Área real física em m².")
-    fator_utilizado: Decimal = Field(..., description="Fator de ponderação aplicado segundo a NBR 12.721:2006.")
-    area_equivalente_m2: Decimal = Field(..., description="Área equivalente resultante (Área Real × Fator).")
+    area_real_m2: Num = Field(..., description="Área real física em m².")
+    fator_utilizado: Num = Field(..., description="Fator de ponderação aplicado segundo a NBR 12.721:2006.")
+    area_equivalente_m2: Num = Field(..., description="Área equivalente resultante (Área Real × Fator).")
 
 
 class AreaEquivalenteResponse(BaseModel):
-    area_real_total_m2: Decimal = Field(..., description="Soma das áreas reais físicas de todos os ambientes.")
-    area_equivalente_total_m2: Decimal = Field(..., description="Área equivalente ponderada total da edificação segundo a NBR 12.721.")
-    fator_equivalente_medio: Decimal = Field(..., description="Fator médio de ponderação global da obra (Área Equivalente / Área Real).")
-    cub_m2_aplicado: Optional[Decimal] = Field(None, description="Valor do CUB/m² utilizado no cálculo (se informado ou consultado).")
-    custo_estimado_total: Optional[Decimal] = Field(None, description="Estimativa de Custo Global (R$) = Área Equivalente Total × CUB/m².")
+    area_real_total_m2: Num = Field(..., description="Soma das áreas reais físicas de todos os ambientes.")
+    area_equivalente_total_m2: Num = Field(..., description="Área equivalente ponderada total da edificação segundo a NBR 12.721.")
+    fator_equivalente_medio: Num = Field(..., description="Fator médio de ponderação global da obra (Área Equivalente / Área Real).")
+    cub_m2_aplicado: Optional[Num] = Field(None, description="Valor do CUB/m² utilizado no cálculo (se informado ou consultado).")
+    custo_estimado_total: Optional[Num] = Field(None, description="Estimativa de Custo Global (R$) = Área Equivalente Total × CUB/m².")
     erro: Optional[str] = Field(
         None,
         description="STORY-MCP-007/C-04: código do que impediu o orçamento "
@@ -354,7 +355,7 @@ class AreaEquivalenteResponse(BaseModel):
 
 class FatorAreaItem(BaseModel):
     tipo_ambiente: str = Field(..., description="Classificação do ambiente.")
-    fator_padrao: Decimal = Field(..., description="Coeficiente padrão de ponderação (NBR 12.721 Quadro II).")
+    fator_padrao: Num = Field(..., description="Coeficiente padrão de ponderação (NBR 12.721 Quadro II).")
     faixa_recomendada: str = Field(..., description="Intervalo normativo recomendado.")
     descricao: str = Field(..., description="Orientações de aplicação segundo a norma.")
 

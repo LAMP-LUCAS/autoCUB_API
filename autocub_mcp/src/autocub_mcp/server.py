@@ -28,7 +28,10 @@ TOOLS = (
     (tier_1.cub_health, "Saúde da API CUB via gateway."),
     (
         tier_2.cub_calc_area,
-        "Calcula área equivalente em m² e custo estimativo via REST, sem persistência.",
+        "Calcula área equivalente em m² (NBR 12.721) e custo estimativo via REST, "
+        "sem persistência. **Tipagem (ADR 009):** todo valor numérico da resposta é "
+        "JSON number (float), nunca string; datas são string ISO. Sem CUB para a UF, "
+        "a resposta traz `erro` + `motivo` + `ufs_com_cub_mais_proximas`.",
     ),
 )
 
