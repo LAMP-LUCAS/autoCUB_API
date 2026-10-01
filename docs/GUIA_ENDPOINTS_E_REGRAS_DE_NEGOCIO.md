@@ -429,6 +429,73 @@ exatidão contábil usa a fonte (CBIC/SGS) ou o banco; o consumidor previsto
 Cache: a API usa `model_dump(mode="json")` — a mudança vale para o cache
 junto, então **flush das camadas de cache** é parte da ativação.
 
+## 8. Contrato de resposta e modelo de confiança
+
+### 8.1 O envelope é único (13 tools, dois caminhos)
+
+Toda resposta — **com dado ou sem dado** — segue o mesmo envelope:
+
+```jsonc
+// com dado
+{ "status": "ok", "disponivel": true, "consulta": {...},
+  "vigencia": {...}, "items": [...], "total": 19, /* campos da tool */ }
+
+// sem dado
+{ "status": "sem_dado", "disponivel": false, "consulta": {...},
+  "motivo": { "codigo": "...", "descricao": "...", "natureza": "..." },
+  "vigencia": {...}, "alternativas": {...}, "orientacao": {...},
+  "itens": [], "total": 0 }
+```
+
+**Motivos** (catálogo fechado; `natureza` diz quem resolve):
+
+| Código | Natureza | Quando |
+|---|---|---|
+| `CUB_NAO_PUBLICADO_POR_UF` | `limitacao_externa` | Estado não publica / sem adapter |
+| `SEM_SINDUSCON_CADASTRADO` | `limitacao_externa` | Falta cadastro |
+| `SEM_COTACAO_PARA_O_PERIODO` | `ingestao_pendente` | UF existe, mês não carregado |
+| `REFERENCIA_DESATUALIZADA` | `defasagem` | Dado existe, em período anterior |
+| `PADRAO_NAO_DISPONIVEL` | `ingestao_pendente` | Padrão NBR não carregado |
+| `PARAMETRO_INVALIDO` | `parametro_invalido` | Parâmetro semanticamente inútil |
+
+Invariantes (com claim de gate cada): `disponivel:false` nunca traz número;
+`motivo` é objeto; `content` nunca vazio; erro tem código e `correlation_id`;
+**sem jargão interno** no corpo.
+
+### 8.2 Vigência — o número é atual?
+
+Toda resposta com dado traz `vigencia`:
+
+```json
+{ "data_referencia": "2026-03", "vigente": false, "meses_de_atraso": 5,
+  "ultima_publicacao_conhecida": "2026-08",
+  "alerta": "Dado 5 mês(es) atrás ... confirme a vigência antes de usar no orçamento." }
+```
+
+Medida contra a **competência mais recente do acervo** (não da própria UF): AC
+responde 2026-03 num acervo com 2026-08 e precisa aparecer como defasado. Em
+resposta-lista (ex.: `cub_latest`) a vigência vem **por item**; catálogo perene
+(NBR/sindicatos) declara `escopo: catalogo_perene`, sem data inventada.
+
+### 8.3 Confiança no dado: verificar, não alertar
+
+Repetição de valor entre competências **não é defeito** — é fato da fonte
+(verificado no `cub.org.br`: o Sinduscon-AM mantém o índice em maio e junho).
+Nenhuma resposta de tool desacredita o valor.
+
+A proteção contra erro de carga é a **conferência na ingestão**
+(`processor/conferencia.py`):
+
+- **C1** — o rótulo do PDF (a competência que ele declara) é conferido contra o
+  pedido **antes de gravar**. Divergente → não grava; sem rótulo legível →
+  grava e registra "não conferível".
+- **C2** — depois de gravar, relê do banco o que gravou e compara com o PDF
+  (pega erro de chave, invisível aos demais checks).
+
+Resultado em `etl_execucoes` (sem DDL) + JSON em `data/conferencia/`, exposto em
+`cub_health.cobertura.conferencia_da_fonte` — com `divergencias` **só quando há
+FATO**.
+
 ## 💡 Resumo das Rotas e Aliases Byte-Saving
 
 | Rota Canônica (Curta / Byte-Saving) | Alias Descritivo (Retrocompatibilidade) | Objetivo Principal |

@@ -90,6 +90,22 @@ Para garantir que modificações futuras nos layouts dos relatórios mensais da 
 
 ---
 
+### 📚 Documentação
+
+| Documento | Para quê |
+|---|---|
+| **[📘 Manual de Manutenção](docs/MANUAL_DE_MANUTENCAO.md)** | **Comece por aqui se for mudar o repo**: doutrina (só há sinal com FATO), mapa do código, contrato de resposta, pipeline de ingestão e guardas, receitas (add tool / add guarda / rodar o gate), armadilhas conhecidas e runbook de reprocessamento |
+| [📗 Regras de negócio por endpoint](docs/GUIA_ENDPOINTS_E_REGRAS_DE_NEGOCIO.md) | O contrato de cada endpoint: envelope único, vigência, tipagem, health |
+| [📙 Diagnóstico de dados (AM/AC/PI)](docs/DIAGNOSTICO_DADOS_AM_AC_PI.md) | Série do AM, defasagem de AC/PI, cobertura por UF — com evidência medida |
+| [📕 Consórcio CBIC e adapters](docs/CONSORCIO_CBIC_E_ADAPTERS.md) | Contrato com a CBIC e adapters futuros |
+
+**A regra que governa este repo:** *só há sinal com FATO medido.* Na dúvida,
+não alerte — **verifique**. Nunca desacreditar o valor que a fonte oficial
+publica. (Por que: em 2026-10-01 verificamos que o Sinduscon-AM mantém o índice
+entre maio e junho, e um alerta anterior acusava a nossa carga — errado.)
+
+---
+
 
 ### 📁 Usando PDFs Locais do CUB (Cache / Offline)
 
