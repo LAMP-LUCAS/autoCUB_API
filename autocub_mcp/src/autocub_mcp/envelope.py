@@ -36,6 +36,12 @@ Regras invioláveis (asseridas pelo gate da casa, claims §C-10/§C-11):
    é o que transforma "não tenho" em "use isto".
 5. ``orientacao.texto`` é escrito para o humano que vai ler o orçamento.
 6. Nunca ``content: []`` — sempre pelo menos um bloco.
+7. **Nunca desacreditar o valor oficial.** Repetição de valor entre
+   competências é FATO DA FONTE — verificado em 2026-10-01 baixando os PDFs
+   do cub.org.br: o Sinduscon-AM publica o mesmo índice em maio e junho. Não é
+   defeito de carga, então o envelope **não** marca nada: o dado que a fonte
+   publica é o dado que o agente orça. Diagnóstico factual (índice mantido)
+   fica em ``cub_health``, para o operador, sem veredito.
 
 Decisão de camada (2026-09-30): o contrato é do **MCP** (é o que o agente
 consome); a API só ganha campos **aditivos**. Por isso as alternativas e a
@@ -77,11 +83,6 @@ CATALOGO_MOTIVOS: dict[str, tuple[str, str]] = {
     "PARAMETRO_INVALIDO": (
         "Parâmetro semanticamente inutilizável (ex.: padrão NBR inexistente).",
         "parametro_invalido",
-    ),
-    "SERIA_SINCRONIZADA_COM_ATRASO": (
-        "A série desta UF tem valores repetidos, aguardando ressincronização "
-        "com a fonte oficial.",
-        "ingestao_pendente",
     ),
 }
 
@@ -345,12 +346,6 @@ _ORIENTACAO = {
         "Confira o parâmetro enviado (UF, padrão e período).",
         "Parâmetro inválido produz cálculo sem lastro.",
     ),
-    "SERIA_SINCRONIZADA_COM_ATRASO": (
-        "aguardar_ressincronizacao",
-        "A série tem valores repetidos; confirme a data do último boletim da "
-        "fonte antes de orçar.",
-        "Valor repetido é sinal de republicação, não de estabilidade de preço.",
-    ),
 }
 
 
@@ -426,27 +421,6 @@ async def com_dado(corpo: Any, consulta: dict, ctx) -> Any:
     corpo = await com_vigencia(corpo, consulta, ctx)
     # 2) separa itens do restante do corpo
     itens, extras = _extrair_itens(corpo)
-    # 3) dado provisório marcado na leitura (P0-1): nos itens e nas listas aninhadas
-    #    (ex.: as `cotacoes` de cada sindicato em `cub_get_uf`)
-    todos_alertas = await alertas_provisorios(ctx)
-    # O aviso viaja com o dado: quem consulta RJ não recebe o alerta de AM.
-    # Só `cub_health` (diagnóstico) lista todas — é o papel dele.
-    ufs_resposta = {
-        str(x.get("uf") or extras.get("uf") or "").upper()
-        for x in itens if isinstance(x, dict) and x.get("uf")
-    } or ({str(extras.get("uf")).upper()} if extras.get("uf") else set())
-    alertas = [a for a in todos_alertas if a.get("uf") in ufs_resposta]
-    if "saude" in str(consulta.get("catalogo") or ""):
-        # `cub_health` é o diagnóstico: lista TODAS as séries provisórias.
-        alertas = todos_alertas
-    contexto = {
-        "uf": extras.get("uf"),
-        "codigo_padrao": extras.get("codigo_padrao"),
-        "desoneracao": extras.get("desoneracao"),
-    }
-    itens = marcar_provisorios(itens, alertas, contexto)
-    extras = _marcar_aninhados(extras, alertas, contexto)
-
     saida: dict = {
         "status": STATUS_OK,
         "disponivel": True,
@@ -455,28 +429,10 @@ async def com_dado(corpo: Any, consulta: dict, ctx) -> Any:
         "items": itens,
         "total": extras.get("total", len(itens)),
     }
-    if alertas:
-        saida["alertas"] = alertas
     saida.update({k: v for k, v in extras.items() if k != "vigencia"})
     saida["vigencia"] = saida["vigencia"] or _vigencia_do_primeiro_item(itens)
     saida["items"] = itens
     saida["total"] = extras.get("total", len(itens))
-    return saida
-
-
-def _marcar_aninhados(extras: dict, alertas: list[dict], contexto: dict | None = None) -> dict:
-    """Marca as listas aninhadas do corpo (ex.: `cotacoes` do `cub_get_uf`).
-
-    A cotação é onde o número está — é ela que precisa carregar o aviso.
-    """
-    if not alertas:
-        return extras
-    saida = dict(extras)
-    for chave, valor in list(extras.items()):
-        if isinstance(valor, list) and chave not in ("ufs_nao_encontrados", "ufs_com_dado"):
-            marcados = marcar_provisorios(valor, alertas, contexto)
-            if marcados is not valor:
-                saida[chave] = marcados
     return saida
 
 
@@ -584,117 +540,7 @@ async def com_vigencia(corpo: Any, consulta: dict, ctx) -> Any:
     return corpo
 
 
-# ── dado provisório (P0-1) ───────────────────────────────────────────────────
-
-CODIGO_SERIE_PROVISORIA = "VALOR_REPETIDO_NA_SERIE"
-
-_alertas_cache: dict = {}          # api_key -> alertas
-
-
-async def alertas_provisorios(ctx) -> list[dict]:
-    """Séries provisórias detectadas na base (fonte: `cub_health.cobertura`).
-
-    O detector roda na INGESTÃO, mas os registros já gravados não podem ser
-    marcados (não há coluna para isso e DDL em produção exige backup). Então a
-    sinalização acontece na **leitura**: `cub_health` faz a varredura sobre o
-    acervo e o MCP usa esse resultado para marcar a cotação exata de quem
-    consulta — assim o aviso viaja com o dado, e não vive só no health
-    (STORY-MCP-007 P0-1, o bloqueante da recertificação).
-
-    Uma chamada, já cacheada pelo próprio endpoint de health.
-    """
-    from autocub_mcp.tools.tier_1 import get_cache, get_client
-    from autocub_mcp.auth import resolve_api_key
-    from autocub_mcp.cache import cache_key
-
-    api_key = resolve_api_key(ctx)
-    # Por assinante: o endpoint de health é autenticado, e o memoizado em
-    # processo não pode atravessar chaves.
-    if api_key in _alertas_cache:
-        return _alertas_cache[api_key]
-    try:
-        saude = await get_cache().get_or_fetch(
-            cache_key("/v1/health", {}, api_key=api_key),
-            lambda: get_client().get("/v1/health", api_key=api_key),
-        )
-    except Exception as exc:  # noqa: BLE001 - sinalização é acessória
-        logger.warning("alertas provisórios indisponíveis: %s", exc)
-        saude = {}
-    bloco = ((saude or {}).get("cobertura") or {}).get("series_provisorias") or {}
-    detalhe = bloco.get("detalhe") or {}
-    alertas: list[dict] = []
-    for uf, info in detalhe.items():
-        series = []
-        for nome, dados in (info.get("series_detalhe") or {}).items():
-            series.append({
-                "padrao_desoneracao": nome,
-                "competencias": dados.get("competencias") or [],
-                "meses_repeticao": dados.get("meses_repeticao"),
-            })
-        if series:
-            alertas.append({
-                "codigo": CODIGO_SERIE_PROVISORIA,
-                "escopo": "uf",
-                "uf": uf,
-                "natureza": "ingestao_pendente",
-                "descricao": (
-                    "Série com 2+ meses de valor idêntico: provável "
-                    "republicação/forward-fill da fonte oficial. As cotações "
-                    "marcadas são provisórias — confirme o boletim antes de orçar."
-                ),
-                "series": series,
-                "total_registros": info.get("registros"),
-            })
-    _alertas_cache[api_key] = alertas
-    return alertas
-
-
-def _chave_serie(item: dict) -> str:
-    return f"{item.get('codigo_padrao')}/{item.get('desoneracao')}"
-
-
-def marcar_provisorios(itens: list, alertas: list[dict], contexto: dict | None = None) -> list:
-    """Marca as cotações provisórias e devolve os itens (cópia, sem mutar cache).
-
-    Só marca quando a competência da cotação está na lista de repetição da
-    série — assim a ressincronização (julho, por exemplo) NÃO é marcada, e
-    uma série sadia (RJ) nunca recebe sinal.
-
-    `contexto`: itens que não repetem `uf`/`codigo_padrao` (série do histórico)
-    herdam esses campos do envelope da resposta.
-    """
-    if not alertas:
-        return itens
-    indice: dict[tuple[str, str], set] = {}
-    for alerta in alertas:
-        uf = str(alerta.get("uf") or "").upper()
-        for serie in alerta.get("series") or []:
-            for competencia in serie.get("competencias") or []:
-                indice.setdefault((uf, serie.get("padrao_desoneracao")), set()).add(competencia)
-    ctx = contexto or {}
-    saida = []
-    for item in itens:
-        if not isinstance(item, dict):
-            saida.append(item)
-            continue
-        uf = str(item.get("uf") or ctx.get("uf") or "").upper()
-        competencia = str(item.get("data_referencia") or "")[:7]
-        serie = f"{item.get('codigo_padrao') or ctx.get('codigo_padrao')}/" \
-                f"{item.get('desoneracao') or ctx.get('desoneracao')}"
-        chave = (uf, serie)
-        if competencia and competencia in indice.get(chave, ()):  # noqa: SIM118
-            saida.append({
-                **item,
-                "provisorio": True,
-                "motivo_provisorio": CODIGO_SERIE_PROVISORIA,
-            })
-        else:
-            saida.append(item)
-    return saida
-
-
 def limpar_cache_snapshot() -> None:
-    """Usado pelos testes: zera o snapshot e os alertas memoizados."""
+    """Usado pelos testes: zera o snapshot memoizado no processo."""
     _snapshot_cache["valor"] = None
-    _alertas_cache.clear()
     _snapshot_cache["em"].clear()

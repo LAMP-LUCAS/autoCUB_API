@@ -187,46 +187,50 @@ def health_check(db: Session = Depends(get_db)):
                     CubMensal, CubMensal.sinduscon_id == Sinduscon.id
                 ).all()
             ]
-            provisorios = detectar_repeticoes(registros)
+            estaveis = detectar_repeticoes(registros)
             # Detalhe por (padrão/desoneração) com as COMPETÊNCIAS afetadas: é o
             # que permite ao MCP marcar a cotação exata no caminho de leitura
             # (STORY-MCP-007 P0-1 — o aviso precisa viajar com o dado).
             por_uf: dict = {}
-            for registro in provisorios:
+            for registro in estaveis:
                 uf = registro["uf"]
                 chave = f"{registro['codigo_padrao']}/{registro['desoneracao']}"
                 info = por_uf.setdefault(uf, {
-                    "series": {}, "registros": 0, "motivo": "VALOR_REPETIDO_NA_SERIE",
+                    "series": {}, "competencias": 0,
+                    "fato": "INDICE_MANTIDO_ENTRE_COMPETENCIAS",
                 })
-                info["registros"] += 1
+                info["competencias"] += 1
                 serie = info["series"].setdefault(
-                    chave, {"competencias": [], "meses_repeticao": registro.get("meses_repeticao")}
+                    chave,
+                    {"competencias_mantidas": [],
+                     "meses_mantido": registro.get("meses_mantido")},
                 )
                 competencia = str(registro.get("data_referencia") or "")[:7]
-                if competencia and competencia not in serie["competencias"]:
-                    serie["competencias"].append(competencia)
+                if competencia and competencia not in serie["competencias_mantidas"]:
+                    serie["competencias_mantidas"].append(competencia)
             if por_uf:
-                cobertura["series_provisorias"] = {
+                # FATO, sem veredito (2026-10-01): o índice foi MANTIDO entre
+                # competências — verificado contra a fonte oficial (cub.org.br,
+                # 2026-10-01), é o valor que o Sinduscon-AM publica. Isto é
+                # diagnóstico de operador; nenhuma resposta de tool desacredita
+                # o valor (decisão do usuário: marcar "provisório" injectava
+                # desconfiança em dado oficial correto).
+                cobertura["series_indice_estavel"] = {
                     "ufs": sorted(por_uf),
-                    "total_registros": len(provisorios),
+                    "total_competencias": len(estaveis),
+                    "fato": "INDICE_MANTIDO_ENTRE_COMPETENCIAS",
                     "detalhe": {
-                        # `series` mantém a lista de nomes (contrato anterior);
-                        # `series_detalhe` traz as competências afetadas de cada
-                        # uma — é o que o MCP usa para marcar a cotação exata.
-                        uf: {**info, "series": sorted(info["series"]),
-                             "series_detalhe": info["series"]}
+                        uf: {**info, "series": sorted(info["series"])}
                         for uf, info in por_uf.items()
                     },
-                    "motivo": (
-                        "Série com 2+ meses de valor idêntico: provável "
-                        "republicacao/forward-fill da fonte. Os registros NÃO "
-                        "foram descartados (virariam buraco) — estão marcados "
-                        "como provisórios. Reprocessar depende de backup e da "
-                        "confirmação da fonte (B-01)."
+                    "nota": (
+                        "Valor oficial mantido entre competências consecutivas "
+                        "— confirmado na fonte oficial, não é falha de carga nem "
+                        "estimativa. Confira a data de publicação da fonte."
                     ),
                 }
         except Exception as exc:  # noqa: BLE001 - health nunca quebra
-            cobertura.setdefault("series_provisorias", {})
+            cobertura.setdefault("series_indice_estavel", {})
 
         # B-07: por que cada UF está sem dado e quando sai (roadmap declarado,
         # para o cliente não achar que é falha temporária de consulta).

@@ -45,7 +45,7 @@ diagnóstico.
 `variacao_mensal_pct = 0,00` está dentro da faixa da guarda de sanidade
 (|var| > 5%), então ela **não** detectava este caso — daí um detector próprio.
 
-### 2c. CAUSA-RAIZ FECHADA (2026-10-01): o defeito é da FONTE, não da carga
+### 2c. CAUSA-RAIZ FECHADA (2026-10-01): o índice é MANTIDO pela fonte, não corrompido
 
 Backup + dry-run foram executados (autorizados pelo usuário). O dry-run parseou
 os PDFs da fonte (Sinduscon-AM, `sinduscon_id=5`) e comparou com o banco, **sem
@@ -73,6 +73,39 @@ publicou a competência de junho com os valores de maio**.
 **Conclusão:** a nossa carga está fiel à fonte. O `upsert` de 2026-05..07
 gravaria exatamente os mesmos valores — **reprocessar é operação sem efeito**.
 Nada foi gravado (checksum do acervo inalterado: `9a05de34…` antes e depois).
+
+### 2d. VERIFICAÇÃO DIRETA NA FONTE (2026-10-01) e correção do alarme
+
+A evidência acima comparava a base com o **cache** (baixado em 03/09). Para
+fechar a lacuna, os PDFs foram baixados **direto do `cub.org.br`** no dia:
+
+| Competência | Fonte ao vivo (baixada 01/10) | Cache | Banco | Bate? |
+|---|---|---|---|---|
+| 2026-05 | sha `5aaf71eb…`, R1-N = 3897,23 | 3897,23 | 3897,23 | ✅ 19/19 |
+| 2026-06 | sha `fac773eb…`, R1-N = 3897,23 | 3897,23 | 3897,23 | ✅ 19/19 |
+
+Os `sha` do download atual diferem do cache porque o CBIC **regera** o arquivo a
+cada visita — mas o **conteúdo é o mesmo**. Confirmação definitiva: **o
+Sinduscon-AM publica 3.897,23 em maio e em junho**.
+
+**Consequência de projeto (decisão do usuário, 2026-10-01):** o alerta de
+"dado provisório" foi **removido**. Ele se apoiava na hipótese de forward-fill
+nosso, que a verificação refutou; mantê-lo injectava desconfiança em número
+oficial correto e podia fazer o agente recusar valor válido — o risco
+inverso, tão grave quanto o original.
+
+- Respostas das tools: **nenhuma marcação**. O valor chega com `vigencia` e
+  pronto para orçamento.
+- `cub_health.cobertura.series_indice_estavel`: diagnóstico **factual** para o
+  operador (quais séries mantiveram o índice), sem veredito.
+- Log da ETL: informativo, nível `INFO`.
+- `SERIA_SINCRONIZADA_COM_ATRASO` saiu do catálogo de motivos (nunca foi
+  emitida e nomeava um defeito inexistente).
+
+**O que realmente protegeria** contra forward-fill nosso (o risco original) não
+é um alarme, é **verificação**: comparar o valor ingerido com o PDF da fonte
+na hora da carga — foi exatamente o que o dry-run fez (19/19) e o que a ETL
+deveria fazer por padrão. É a evolução natural deste detector.
 
 O item B-01 fica **encerrado como defeito de fonte**, com duas ações:
 

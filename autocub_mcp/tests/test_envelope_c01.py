@@ -13,6 +13,7 @@ avisar é erro de orçamento.
 
 Equivalentes vivos: claims §C-10 (envelope) e §C-11 (vigência) do gate da casa.
 """
+import json
 from decimal import Decimal
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
@@ -31,24 +32,20 @@ SNAPSHOT = {
 }
 
 
-# `cub_health` do acervo: AM tem 2 meses repetidos (forward-fill). É a fonte
-# da sinalização de dado provisório no caminho de leitura (P0-1).
+# `cub_health` do acervo: AM MANTÉM o índice entre maio e junho — fato da
+# fonte oficial (verificado no cub.org.br em 2026-10-01), não defeito de carga.
+# Por isso o envelope NÃO desacredita o valor (decisão do usuário 2026-10-01).
 SAUDE = {
     "cobertura": {
-        "series_provisorias": {
+        "series_indice_estavel": {
             "ufs": ["AM"],
-            "total_registros": 2,
+            "total_competencias": 2,
+            "fato": "INDICE_MANTIDO_ENTRE_COMPETENCIAS",
             "detalhe": {
                 "AM": {
                     "series": ["R1-N/SEM_DESONERACAO"],
-                    "registros": 2,
-                    "motivo": "VALOR_REPETIDO_NA_SERIE",
-                    "series_detalhe": {
-                        "R1-N/SEM_DESONERACAO": {
-                            "competencias": ["2026-05", "2026-06"],
-                            "meses_repeticao": 2,
-                        },
-                    },
+                    "competencias": 2,
+                    "fato": "INDICE_MANTIDO_ENTRE_COMPETENCIAS",
                 },
             },
         },
@@ -232,6 +229,24 @@ class TestSemDado:
         assert out["disponivel"] is False
         assert out["consulta"]["uf"] == "SP"
         assert out["ufs_com_cub_mais_proximas"] == ["RJ", "MG"]
+
+
+class TestValorOficialNaoDesacreditado:
+    """2026-10-01: o Sinduscon-AM publica 3897,23 em maio E junho (confirmado na
+    fonte). O valor é oficial — marcar como "provisório" injectava desconfiança
+    em dado correto."""
+
+    @pytest.mark.asyncio
+    async def test_amplitude_nao_marca_nada(self, monkeypatch):
+        client = AsyncMock()
+        _patch(monkeypatch, client, uf="AM", ref="2026-05", extra_ufs=())
+        out = await tier_1.cub_get_uf("AM", ctx=context_with_key())
+        cotacoes = out["items"][0].get("cotacoes", []) if out.get("items") else []
+        payload = json.dumps(out, ensure_ascii=False, default=str)
+        for termo in ("provisorio", "VALOR_REPETIDO", "SERIA_SINCRONIZADA"):
+            assert termo not in payload, termo
+        if cotacoes:
+            assert all("provisorio" not in c for c in cotacoes)
 
 
 class TestComDado:

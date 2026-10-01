@@ -88,12 +88,12 @@ Material sintetizado de `docs/GUIA_ENDPOINTS_E_REGRAS_DE_NEGOCIO.md`.
   (mais os campos próprios da tool). Coerência do contrato tem precedência
   sobre a forma de lista (decisão do usuário 2026-09-30): o agente escreve
   contra um formato estável nos dois caminhos.
-- **Dado provisório viaja com o dado (P0-1):** série com 2+ meses de valor
-  idêntico (provável republicação/forward-fill) aparece em `alertas[]` **na
-  resposta da própria UF** — não só em `cub_health` — e as cotações afetadas
-  recebem `provisorio: true` + `motivo_provisorio`. UF saudável não é
-  sinalizada, e a ressincronização (o mês que voltou a variar) não é marcada.
-  Use `cub_health` para o diagnóstico completo da base.
+- **Índice mantido não é defeito:** se o mesmo valor aparece em competências
+  seguidas, é porque a **fonte oficial o mantém** (verificado em 2026-10-01 no
+  cub.org.br: o Sinduscon-AM publica 3.897,23 em maio e em junho). As respostas
+  **não** marcam nada nesse caso — o valor é o oficial e deve ser usado. Se
+  quiser o diagnóstico, `cub_health.cobertura.series_indice_estavel` diz quais
+  séries mantiveram o índice.
 - **Provenance em UF multi-sindicato (P0-2):** `cub_get_uf` traz **um item por
   sindicato ativo**, ordenados por competência **decrescente**, e o item que a
   API usa por default (§5.1) vem primeiro com `recomendado: true` +

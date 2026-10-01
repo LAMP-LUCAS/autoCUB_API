@@ -1,15 +1,18 @@
-"""STORY-MCP-007/B-01 — detector de valor repetido na ingestão.
+"""STORY-MCP-007/B-01 — detector de índice MANTIDO entre competências.
 
-Medido em 2026-09-30: a série de AM não estava corrompida — a matemática está
-certa. Maio e junho **repetem** abril (3.897,23) e julho ressincroniza
-(−5,44% de uma vez): forward-fill/republicação na ingestão. O acúmulo dessa
-defasagem é o que apareceu como "variação implausível".
+**Correção de 2026-10-01 (medição contra a fonte):** a repetição de valor em AM
+(maio = junho = 3.897,23) NÃO é defeito de carga. Baixando os PDFs direto do
+cub.org.br, a fonte oficial publica **3897,23 em maio e em junho** — o
+Sinduscon-AM manteve o índice. O detector existia para pegar *forward-fill
+nosso*; hipótese refutada.
 
-Como `variacao_mensal_pct = 0,00` está dentro da faixa da guarda de sanidade
-(|var| > 5%), ela não disparava — por isso um detector específico.
+Consequência de projeto: deixou de marcar `dados_provisorios` e saiu da resposta
+das tools. Marca só o **fato** (`INDICE_MANTIDO_ENTRE_COMPETENCIAS`) para o
+operador, em `cub_health` e no log da ETL — sem veredito de desconfiança, porque
+o valor é o oficial.
 
-O detector **marca** (`dados_provisorios`) e **não descarta**: descartar criaria
-buraco na série, que é pior do que valor repetido ASSINALADO.
+Continua relevante: variação 0,00% **passa** pela guarda de sanidade
+(|var| > 5%), então este é o único detector que enxerga o caso.
 """
 from datetime import date
 from decimal import Decimal
@@ -49,9 +52,10 @@ class TestSerieRealDeAM:
         repetidos = repeticao.detectar_repeticoes(_serie(AM_REAL))
         assert repetidos, "a série real de AM deveria ser sinalizada"
         for r in repetidos:
-            assert r["dados_provisorios"] is True
-            assert r["alerta_valor_repetido"] == repeticao.ALERTA
-            assert r["meses_repeticao"] == 2
+            # FATO, sem veredito: nenhum campo diz "provisório"/"suspeito".
+            assert r["fato"] == "INDICE_MANTIDO_ENTRE_COMPETENCIAS"
+            assert r["meses_mantido"] == 2
+            assert "dados_provisorios" not in r and "alerta_valor_repetido" not in r
             # o valor continua lá: descartar viraria buraco
             assert r["valor_m2"] is not None
 
@@ -63,7 +67,7 @@ class TestSerieRealDeAM:
     def test_nao_altera_o_registro_original(self):
         serie = _serie(AM_REAL)
         repeticao.detectar_repeticoes(serie)
-        assert "dados_provisorios" not in serie[4], "o input não pode ser mutado"
+        assert "fato" not in serie[4], "o input não pode ser mutado"
 
 
 class TestSeriesSaudaveis:
@@ -85,7 +89,7 @@ class TestSeriesSaudaveis:
         serie = _serie([100.00, 100.00, 100.00, 100.00, 101.00], uf="GO")
         repetidos = repeticao.detectar_repeticoes(serie)
         assert len(repetidos) == 3
-        assert {r["meses_repeticao"] for r in repetidos} == {3}
+        assert {r["meses_mantido"] for r in repetidos} == {3}
 
 
 class TestSeparacaoPorSerie:

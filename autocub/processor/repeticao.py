@@ -19,7 +19,8 @@ O que este detector faz:
 * ``repeticoes_por_serie`` — agrupa os registros por (UF, padrão, desoneração) e
   aponta meses com valor idêntico ao anterior (repetição é suspeita por si;
   CUB não fica parado 2 meses seguidos sem justificativa econômica);
-* marca o registro com ``dados_provisorios: true`` e ``alerta_valor_repetido``;
+* marca o registro com o FATO ``INDICE_MANTIDO_ENTRE_COMPETENCIAS`` e
+  ``meses_mantido`` — sem veredito de desconfiança;
 * **não descarta** o registro — descartar criaria buraco na série, que é pior
   que um valor repetido ASSINALADO (a USP número inventado, o buraco calado).
 
@@ -38,7 +39,7 @@ from typing import Iterable
 
 logger = logging.getLogger("autocub.repeticao")
 
-ALERTA = "VALOR_REPETIDO_NA_SERIE"
+FATO = "INDICE_MANTIDO_ENTRE_COMPETENCIAS"
 
 # Quantos meses seguidos com o MESMO valor já caracterizam forward-fill. Com
 # 1 repetição isolada pode ser coincidência de arredondamento (centavos).
@@ -86,8 +87,8 @@ def detectar_repeticoes(
 ) -> list[dict]:
     """Registros com valor repetido por `min_meses` meses seguidos ou mais.
 
-    Devolve cópias anotadas (o original não é mutado) com ``dados_provisorios``,
-    ``alerta_valor_repetido`` e ``meses_repeticao``.
+    Devolve cópias anotadas (o original não é mutado) com ``fato`` e
+    ``meses_mantido`` — o FATO de que o índice foi mantido, sem veredito.
     """
     itens = list(registros)
     anotados: dict[int, dict] = {}
@@ -109,16 +110,11 @@ def detectar_repeticoes(
             for indice in grupo:
                 original = serie[indice]
                 copia = dict(original)
-                copia["dados_provisorios"] = True
-                copia["alerta_valor_repetido"] = ALERTA
-                copia["meses_repeticao"] = len(grupo)
-                copia["motivo_provisorio"] = (
-                    f"{len(grupo)} mês(es) com o mesmo valor — possivel "
-                    "republicacao/forward-fill da fonte; confirme o boletim."
-                )
+                copia["fato"] = FATO
+                copia["meses_mantido"] = len(grupo)
                 anotados[id(original)] = copia
-                logger.warning(
-                    "SERIE REPETIDA %s/%s (%s): %d mês(es) com valor %s a partir de %s",
+                logger.info(
+                    "INDICE MANTIDO %s/%s (%s): %d competência(s) com valor %s a partir de %s",
                     uf, padrao, deson, len(grupo), original.get("valor_m2"),
                     original.get("data_referencia"),
                 )
