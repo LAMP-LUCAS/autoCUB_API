@@ -178,6 +178,29 @@ queda, o dado está correto e a anomalia é real (implicando revisão de todo
 orçamento que use AM/2026-07). Se a publicação não traz, é erro de carga e o
 caminho é reprocessar **com backup** e guarda de sanidade ativa.
 
+## 2e. PROTEÇÃO IMPLEMENTADA (2026-10-01): verificação, não alarme
+
+O alerta de "provisório" foi removido (2d). A proteção que o substitui é
+**conferir a fonte na ingestão** — `autocub/processor/conferencia.py`, ligado
+em `process_single_cub_report`:
+
+- **C1 · período declarado × pedido** — o rótulo do próprio PDF é conferido antes
+  de gravar. Tri-estado: `confere` / `divergente` / `indeterminado`. Divergente
+  **não grava** (fato: arquivo de outra competência); indeterminado grava e
+  registra que não deu para conferir (nunca bloqueia por ignorância).
+  Medido em 1.144 PDFs: 1.117 confere · 22 divergentes (cache órfão, nunca
+  ingerido) · 5 indeterminados.
+- **C2 · gravação × PDF** — relê do banco só o que gravou e compara (único check
+  que pega erro de chave). Divergência vira `CONFERIU_DIVERGENTE`.
+- **C3 · índice mantido** — o detector existente, agora como FATO.
+- Resultado: `etl_execucoes` (status + mensagem, **sem DDL**) + JSON de
+  auditoria em `data/conferencia/`; exposto em `cub_health.cobertura.conferencia_da_fonte`
+  (claim de gate §B-01x).
+
+Isso converte a lição em mecanismo: **só há sinal quando há fato medido na
+fonte**. Em AM, onde a repetição é o índice oficialmente mantido, nada é
+sinalizado; um arquivo de competência errada, se baixado, é barrado na hora.
+
 ## 3. AC e PI — defasagem de ingestão
 
 | UF | Última referência | Defasagem (setembro/2026) |

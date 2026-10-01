@@ -196,5 +196,12 @@ valores de maio; sha256 dos 4 PDFs distintos). Nossa carga está fiel, então
 **reprocessar seria operação sem efeito** e nada foi gravado (checksum do acervo
 inalterado). A correção depende da fonte (pergunta ao sindicato), não do código.
 
+**Proteção implementada (Onda A/B, 2026-10-01):** a verificação da fonte na
+ingestão — conferência do período declarado no PDF × pedido (divergente não
+grava, indeterminado grava e registra) e da gravação × PDF (erro de chave),
+registrada em `etl_execucoes` (sem DDL) + JSON de auditoria, exposta em
+`cub_health.conferencia_da_fonte`. Substitui o alarme por verificação: só há
+sinal com fato medido na fonte. Claim §B-01x.
+
 **Ainda pendente (defeito de dado, não de código):** causa da defasagem de AC
 (2026-03) e PI (2026-06). Ver `docs/DIAGNOSTICO_DADOS_AM_AC_PI.md`.
