@@ -23,8 +23,11 @@ O que este detector faz:
 * **não descarta** o registro — descartar criaria buraco na série, que é pior
   que um valor repetido ASSINALADO (a USP número inventado, o buraco calado).
 
-Nada aqui reprocessa dado: a correção da série de AM é operação separada, com
-backup e autorização (ver `docs/DIAGNOSTICO_DADOS_AM_AC_PI.md`).
+Nada aqui reprocessa dado. **E a série de AM não precisa**: o dry-run de
+2026-10-01 provou que a base está fiel ao PDF publicado (o Sinduscon-AM
+publicou 2026-06 com os valores de 2026-05) — reprocessar seria operação sem
+efeito. A correção depende da fonte, não da carga (ver
+`docs/DIAGNOSTICO_DADOS_AM_AC_PI.md`, seção 2c).
 """
 from __future__ import annotations
 

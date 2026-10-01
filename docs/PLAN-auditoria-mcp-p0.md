@@ -188,6 +188,13 @@ pior caso para um agente que não varrer a lista.
 **Gate:** 49/49 (exit=0, 2 execuções). Suítes: AutoCUB API 72 · MCP 91 ·
 SINAPI API 354 · SINAPI MCP 151 · INCC 122. `verify_mcp_docs_facts` verde.
 
-**Ainda pendente de decisão humana (nada foi reprocessado):** reprocessar AM
-2026-05..07 contra a fonte do Sinduscon-AM (exige backup) e a causa da defasagem
-de AC/PI. Ver `docs/DIAGNOSTICO_DADOS_AM_AC_PI.md`.
+**B-01 encerrado (2026-10-01).** Backup feito e **verificado por restauração**
+(md5 de conteúdo idêntico ao produção). O dry-run parseou os PDFs da fonte e
+comparou com o banco: **19/19 padrões batem em 2026-04..07** — a repetição de
+maio/junho está no **PDF publicado** (o Sinduscon-AM publicou junho com os
+valores de maio; sha256 dos 4 PDFs distintos). Nossa carga está fiel, então
+**reprocessar seria operação sem efeito** e nada foi gravado (checksum do acervo
+inalterado). A correção depende da fonte (pergunta ao sindicato), não do código.
+
+**Ainda pendente (defeito de dado, não de código):** causa da defasagem de AC
+(2026-03) e PI (2026-06). Ver `docs/DIAGNOSTICO_DADOS_AM_AC_PI.md`.

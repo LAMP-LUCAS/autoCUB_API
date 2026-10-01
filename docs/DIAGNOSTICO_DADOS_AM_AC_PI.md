@@ -1,14 +1,15 @@
 # Diagnóstico de dados CUB — AM, AC, PI (STORY-MCP-007/C-03)
 
 > Medido em 2026-09-30 contra o banco de produção (`cub`).
-> **Nenhum dado foi reprocessado** — este documento é diagnóstico + decisão
-> pendente. Reprocessar exige backup e autorização (regra do projeto).
+> **Nenhum dado foi reprocessado** — e o dry-run de 2026-10-01 provou que
+> reprocessar seria operação sem efeito: a base está fiel ao PDF publicado
+> (ver 2c). Backup foi feito e **verificado por restauração**; nada foi gravado.
 
 ## 1. Resumo
 
 | Achado | Situação | Natureza |
 |---|---|---|
-| **AM** variação −12,44% a −4,85% em 2026-07 | série provavelmente **corrompida** (ou rebase de metodologia) | **decisão humana** antes de reprocessar |
+| **AM** valor repetido em 2026-05/06 | **causa FECHADA (2026-10-01): defeito da FONTE** — o Sinduscon-AM publicou junho com os valores de maio; nossa carga está fiel (ver 2c) | pergunta ao sindicato (ação externa) |
 | **AC** parada em 2026-03-01 | defasagem de ~6 meses (as outras UFs já divulgam 2026-08) | falha de ingestão a investigar |
 | **PI** parada em 2026-06-01 | 2 meses de defasagem | mesma causa de AC (ver 3) |
 | 8 UFs sem cotação | AL, AP, MS, RO, RS, SE, SP, TO | limitação de roadmap (LIM-38), **não** é defeito |
@@ -44,9 +45,50 @@ diagnóstico.
 `variacao_mensal_pct = 0,00` está dentro da faixa da guarda de sanidade
 (|var| > 5%), então ela **não** detectava este caso — daí um detector próprio.
 
-**O que NÃO foi feito (decisão humana pendente):** reprocessar AM de 2026-05 a
-2026-07 contra a fonte do Sinduscon-AM. Exige backup e autorização, e depende
-de confirmar se a publicação também traz a defasagem.
+### 2c. CAUSA-RAIZ FECHADA (2026-10-01): o defeito é da FONTE, não da carga
+
+Backup + dry-run foram executados (autorizados pelo usuário). O dry-run parseou
+os PDFs da fonte (Sinduscon-AM, `sinduscon_id=5`) e comparou com o banco, **sem
+gravar nada**:
+
+| Competência | PDF (fonte) CAL-8-A | Banco | PDF (fonte) R1-N | Banco | Bate? |
+|---|---|---|---|---|---|
+| 2026-04 | 3873,25 | 3873,25 | 3897,23 | 3897,23 | ✅ 19/19 |
+| 2026-05 | 3873,34 | 3873,34 | 3897,23 | 3897,23 | ✅ 19/19 |
+| 2026-06 | 3873,34 | 3873,34 | 3897,23 | 3897,23 | ✅ 19/19 |
+| 2026-07 | 3391,47 | 3391,47 | 3685,04 | 3685,04 | ✅ 19/19 |
+
+Comparação **entre os próprios PDFs** (mesma série, dentro da fonte):
+
+| Par | Padrões com valor idêntico no PDF |
+|---|---|
+| 2026-05 vs 2026-04 | 3/19 |
+| **2026-06 vs 2026-05** | **19/19** ← a repetição está no arquivo publicado |
+| 2026-07 vs 2026-06 | 0/19 (ressincronização) |
+
+Os `sha256` dos quatro PDFs são distintos (`08be7af9…`, `98c5c0b4…`, `b1a30f36…`,
+`4e5b0a34…`), ou seja, não é o mesmo arquivo re-servido: o **Sinduscon-AM
+publicou a competência de junho com os valores de maio**.
+
+**Conclusão:** a nossa carga está fiel à fonte. O `upsert` de 2026-05..07
+gravaria exatamente os mesmos valores — **reprocessar é operação sem efeito**.
+Nada foi gravado (checksum do acervo inalterado: `9a05de34…` antes e depois).
+
+O item B-01 fica **encerrado como defeito de fonte**, com duas ações:
+
+1. **Pergunta para o Sinduscon-AM:** a publicação de 2026-06 deveria ter
+   repetido os valores de 2026-05? Se sim, é o índice que parou; se não, é
+   republicação indevida e a fonte precisa republicar.
+2. **Enquanto isso, nada muda no código:** o detector de valor repetido e o
+   `alerta` de série provisória já marcam AM corretamente (o agente orça com o
+   aviso) e o próximo ciclo de republicação da fonte resolve sozinho.
+
+**Backup mantido** como rede de segurança para o próximo ciclo natural da ETL
+(não havia necessidade de restauração, mas o dump verificado fica disponível):
+- `backups/cub_20261001_0704_pre-reprocess-AM.sql` (1,6 MB, sha256 `6851bc81…`)
+  — **verificado por restauração**: md5 do conteúdo de `cub_mensal` idêntico ao
+  produção (`9a05de34…`), 5/5 tabelas com contagem igual
+- `backups/cub_AM_2026-05_07_pre-reprocess.csv` — as 114 linhas alvo em CSV legível
 
 ### 2b. Registros de AM com valor repetido (lidos do banco, 2026-09-30)
 
