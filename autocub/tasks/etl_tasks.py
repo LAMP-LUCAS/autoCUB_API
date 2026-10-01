@@ -1,3 +1,4 @@
+import json
 import time
 from datetime import datetime, date
 from typing import List, Optional, Dict, Any
@@ -8,6 +9,79 @@ from autocub.database.loader import upsert_cub_records, log_etl_execution
 from autocub.downloader.collector import CubCollector
 from autocub.tasks.celery_app import celery_app
 from autocub.core.telemetry import generate_etl_audit_summary
+import pdfplumber
+
+
+def _gravar_relatorio_conferencia(*, uf, sinduscon_id, ano, mes, desoneracao,
+                                  periodo, gravacao, estaveis, quarentenados, registros):
+    """Grava um JSON de auditoria da conferência por execução (sem DDL).
+
+    Onde: `stacks/autocub/data/conferencia/`. Serve ao operador para auditar
+    "o que a fonte dizia e o que foi gravado" sem depender do log.
+    """
+    from pathlib import Path
+
+    try:
+        import os
+
+        destino = Path(os.getenv("CUB_DATA_DIR", "data")) / "conferencia"
+        destino.mkdir(parents=True, exist_ok=True)
+        arquivo = destino / (
+            f"{uf}_{sinduscon_id}_{ano}-{mes:02d}_{desoneracao}.json"
+        )
+        arquivo.write_text(json.dumps({
+            "uf": uf,
+            "sinduscon_id": sinduscon_id,
+            "competencia": f"{ano}-{mes:02d}",
+            "desoneracao": desoneracao,
+            "periodo": periodo,
+            "gravacao": gravacao,
+            "indice_mantido": len(estaveis),
+            "quarentena": len(quarentenados),
+            "registros_gravados": len(registros),
+        }, ensure_ascii=False, indent=2), encoding="utf-8")
+    except Exception as exc:  # noqa: BLE001 - relatório nunca quebra a carga
+        logger.debug("Relatório de conferência não gravado: %s", exc)
+
+
+def _montar_mensagem_conferencia(*, periodo, gravacao, estaveis, quarentenados):
+    """Resumo curto da conferencia para `etl_execucoes.mensagem_erro`."""
+    partes = []
+    resultado_periodo = periodo.get("resultado")
+    if resultado_periodo == "divergente":
+        partes.append(f"PERIODO DIVERGENTE (fonte declara {periodo['declarado']})")
+    elif resultado_periodo == "indeterminado":
+        partes.append("periodo nao conferivel no PDF")
+    else:
+        partes.append("periodo conferido")
+    if gravacao.get("resultado") == "divergente":
+        partes.append(
+            f"GRAVACAO DIVERGENTE ({gravacao['divergentes']}/{gravacao['conferidos']} linhas)"
+        )
+    else:
+        partes.append(f"gravacao conferida ({gravacao.get('conferidos', 0)} linhas)")
+    if quarentenados:
+        partes.append(f"{len(quarentenados)} em quarentena (sanidade)")
+    if estaveis:
+        partes.append(f"{len(estaveis)} competencia(s) com indice mantido")
+    return "; ".join(partes)[:500]
+
+
+def _ler_valor_gravado(db, sinduscon_id, data_referencia, codigo_padrao, desoneracao):
+    """Relê do banco o valor efetivamente gravado (para o C2 comparar)."""
+    from autocub.database.models import CubMensal
+
+    linha = db.query(CubMensal).filter(
+        CubMensal.sinduscon_id == sinduscon_id,
+        CubMensal.data_referencia == data_referencia,
+        CubMensal.codigo_padrao == codigo_padrao,
+        CubMensal.desoneracao == desoneracao,
+    ).first()
+    return linha.valor_m2 if linha else None
+
+
+class _ConferenciaDivergente(Exception):
+    """O PDF declara outra competência — não grava (fato, não hipótese)."""
 
 
 def process_single_cub_report(
@@ -77,6 +151,25 @@ def process_single_cub_report(
         )
         relatorio = result.data
 
+        # STORY-MCP-007: C1 — conferência da fonte. Antes de gravar, lemos a
+        # competência que o PRÓPRIO PDF declara e comparamos com o pedido.
+        # Divergente = arquivo de outra competência (fato, não hipótese): não
+        # grava. Indeterminado = PDF sem rótulo legível: grava e registra que
+        # não deu para conferir. Verificado em 2026-10-01: 1.117/1.144 confere,
+        # 22 divergentes (cache órfão, nunca ingerido), 5 indeterminados.
+        from autocub.processor import conferencia as _conf
+
+        try:
+            with pdfplumber.open(pdf_path) as _doc:
+                _texto = "\n".join((pg.extract_text() or "") for pg in _doc.pages)
+        except Exception as _exc:  # noqa: BLE001 - PDF ilegível = indeterminado
+            logger.warning("Conferência: PDF ilegível (%s): %s", pdf_path, _exc)
+            _texto = ""
+        _periodo = _conf.conferir_periodo(_texto, ano=ano, mes=mes)
+        _decisao = _conf.decidir(_periodo)
+        if not _decisao["gravar"]:
+            raise _ConferenciaDivergente(_decisao["motivo"])
+
         records = []
         for item in relatorio.itens:
             records.append({
@@ -109,8 +202,34 @@ def process_single_cub_report(
         # faixa não entra em `cub_mensal` (foi assim que AM caiu 12% sem aviso).
         aceitos, quarentenados = sanity.classificar_registros(registros)
         count = upsert_cub_records(db, aceitos)
+
+        # C2 — fidelidade da gravação: relemos do banco SÓ o que gravamos e
+        # comparamos com o que o PDF disse. É o único check que enxerga erro de
+        # chave (valor na UF/competência/desoneração errada). Se divergir,
+        # alertamos com FATO — nunca com hipótese.
+        gravados = {}
+        for rec in aceitos:
+            gravados[(rec["codigo_padrao"], rec["desoneracao"])] = _ler_valor_gravado(
+                db, sinduscon_id, rec["data_referencia"],
+                rec["codigo_padrao"], rec["desoneracao"],
+            )
+        _gravacao = _conf.conferir_gravacao(aceitos, gravados)
+        if _gravacao["resultado"] == "divergente":
+            logger.error(
+                "CONFERIU DIVERGENTE na gravação %s/%s (%s-%02d, %s): %d de %d "
+                "linhas gravadas diferem do PDF. Divergências: %s",
+                uf, sinduscon_id, ano, mes, desoneracao_slug,
+                _gravacao["divergentes"], _gravacao["conferidos"],
+                _gravacao["divergencias"][:5],
+            )
+
         status_sanidade = sanity.registrar_quarentena(
             uf, sinduscon_id, ano, mes, desoneracao_slug, quarentenados,
+        )
+        _gravar_relatorio_conferencia(
+            uf=uf, sinduscon_id=sinduscon_id, ano=ano, mes=mes,
+            desoneracao=desoneracao_slug, periodo=_periodo, gravacao=_gravacao,
+            estaveis=estaveis, quarentenados=quarentenados, registros=aceitos,
         )
         duracao_ms = int((time.time() - start_time) * 1000)
 
@@ -121,6 +240,11 @@ def process_single_cub_report(
             cache.invalidate("cub:rank:*")
 
         status_str = "CACHE_LOCAL" if is_cached else status_sanidade
+        # Conference result in the execution status (no DDL: `status` is
+        # varchar(20)). Divergent GRAVATION is the only case that changes it —
+        # period divergence never reaches here (it does not write).
+        if _gravacao["resultado"] == "divergente":
+            status_str = "CONFERIU_DIVERGENTE"
         # STORY-MCP-007/B-01: o registro de execução carrega a contagem de
         # competências com índice mantido. `cub_mensal` não tem coluna para a
         # marca (DDL em produção exige backup + migração) — a detecção é
@@ -142,10 +266,9 @@ def process_single_cub_report(
             status=status_str,
             registros=count,
             duracao_ms=duracao_ms,
-            mensagem_erro=(
-                f"{len(estaveis)} competência(s) com índice mantido (mesmo "
-                "valor oficial da fonte); nada descartado"
-                if estaveis else None
+            mensagem_erro=_montar_mensagem_conferencia(
+                periodo=_periodo, gravacao=_gravacao,
+                estaveis=estaveis, quarentenados=quarentenados,
             ),
         )
 
@@ -157,6 +280,27 @@ def process_single_cub_report(
         )
         return count, len(quarentenados)
 
+    except _ConferenciaDivergente as e:
+        # Comprovação do arquivo diverge da competência pedida: NÃO é falha de
+        # sistema — é o guard funcionando. Registra com o status próprio (fato,
+        # não hipótese) e não grava.
+        duracao_ms = int((time.time() - start_time) * 1000)
+        logger.warning(
+            "Conferência: %s/%s (%s-%02d, %s) NÃO gravado — %s",
+            uf, sinduscon_id, ano, mes, desoneracao_slug, str(e),
+        )
+        log_etl_execution(
+            db=db,
+            sinduscon_id=sinduscon_id,
+            ano=ano,
+            mes=mes,
+            desoneracao=desoneracao_slug,
+            status="CONFERIU_DIVERGENTE",
+            registros=0,
+            mensagem_erro=str(e),
+            duracao_ms=duracao_ms
+        )
+        return 0, 0
     except Exception as e:
         duracao_ms = int((time.time() - start_time) * 1000)
         logger.error(f"Erro processando CUB {uf}/{sinduscon_id} {ano}-{mes:02d}: {str(e)}")

@@ -234,6 +234,58 @@ def health_check(db: Session = Depends(get_db)):
 
         # B-07: por que cada UF está sem dado e quando sai (roadmap declarado,
         # para o cliente não achar que é falha temporária de consulta).
+        # STORY-MCP-007: conferência da fonte na ingestão (Onda A). Só é
+        # sinalizável quando há FATO: status CONFERIU_DIVERGENTE (arquivo de
+        # competência errada, não gravado). Sem isso, só expõe o último
+        # resultado — nunca um veredito sobre o valor (lição do P0-1).
+        try:
+            from autocub.database.models import EtlExecucao, Sinduscon
+
+            ufs_cadastradas = {
+                linha[0] for linha in db.execute(
+                    text("SELECT DISTINCT uf FROM sinduscons")).all()
+            }
+            ufs_interesse = sorted(
+                (ufs_cadastradas | set(cobertura.get("ufs_sem_dado") or []))
+                & set(BR_UFS)
+            )
+            por_uf = {}
+            mapa_uf = {
+                sid: uf for sid, uf in db.execute(
+                    text("SELECT id, uf FROM sinduscons")).all()
+            }
+            if ufs_interesse:
+                # as linhas ja vem em ordem de id desc: a 1ª de cada UF e a mais
+                # recente (deduplicar por UF, nao por linha)
+                linhas = db.query(EtlExecucao).filter(
+                    EtlExecucao.sinduscon_id.in_(list(mapa_uf))
+                ).order_by(EtlExecucao.id.desc()).limit(120).all()
+                for linha in linhas:
+                    uf = mapa_uf.get(linha.sinduscon_id)
+                    if uf and uf in ufs_interesse and uf not in por_uf:
+                        por_uf[uf] = {
+                            "status": linha.status,
+                            "competencia": f"{linha.ano}-{int(linha.mes):02d}",
+                            "registros": linha.registros_processados,
+                            "mensagem": linha.mensagem_erro,
+                        }
+            if por_uf:
+                cobertura["conferencia_da_fonte"] = {
+                    "por_uf": sorted(por_uf),
+                    "ultimas": por_uf,
+                    "divergencias": sorted(
+                        uf for uf, info in por_uf.items()
+                        if info["status"] == "CONFERIU_DIVERGENTE"
+                    ),
+                    "nota": (
+                        "Última conferência da fonte (período declarado no PDF x "
+                        "pedido; gravação x PDF). `divergencias` só é preenchido "
+                        "com FATO — arquivo de competência errada não foi gravado."
+                    ),
+                }
+        except Exception as exc:  # noqa: BLE001 - health nunca quebra
+            logger.debug("Conferência da fonte indisponível no health: %s", exc)
+
         from autocub.api.roadmap import roadmap_uf
 
         cobertura["detalhe_ufs_sem_dado"] = {
